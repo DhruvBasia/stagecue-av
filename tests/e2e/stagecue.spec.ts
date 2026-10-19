@@ -83,6 +83,7 @@ declare global {
 const ROOT = path.resolve(__dirname, '..', '..');
 const MAIN_ENTRY = path.join(ROOT, 'out', 'main', 'index.js');
 const ARTIFACTS = path.join(ROOT, 'test-results');
+const INSTALLED_EXE = process.env.STAGECUE_E2E_EXECUTABLE || null;
 
 let app: ElectronApplication;
 let operator: Page;
@@ -242,8 +243,12 @@ test.beforeAll(async () => {
   writeFileSync(welcomePath, svgPoster('#15803d', 'WELCOME'));
 
   fakeDrive = await startFakeDrive(driveFiles);
+  // STAGECUE_E2E_EXECUTABLE runs the suite against an installed build ("StageCue AV.exe")
+  // with throwaway app data, so a real installation's settings are never touched.
   app = await electron.launch({
-    args: [MAIN_ENTRY, '--stagecue-e2e'],
+    ...(INSTALLED_EXE
+      ? { executablePath: INSTALLED_EXE, args: ['--stagecue-e2e', `--user-data-dir=${path.join(fixtureDir, 'user-data')}`] }
+      : { args: [MAIN_ENTRY, '--stagecue-e2e'] }),
     env: {
       ...process.env,
       STAGECUE_E2E: '1',
@@ -294,6 +299,10 @@ test('Space takes the highlighted cue onto the stage', async () => {
 });
 
 test('F8 freezes the projector; operator changes stay invisible until the reveal', async () => {
+  // Freeze captures exactly what the audience sees, so let the poster finish fading in first.
+  await expect
+    .poll(() => stage.locator('[data-testid="backdrop-layer"] [data-active="true"]').evaluate((el) => getComputedStyle(el).opacity))
+    .toBe('1');
   await operator.keyboard.press('F8');
   await expect(stage.getByTestId('freeze-layer')).toHaveAttribute('data-active', 'true');
   await expect(operator.getByTestId('status-frozen')).toBeVisible();
@@ -713,6 +722,70 @@ test('phones on another network (mobile data) reach the laptop through the inter
     await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().configureRemote(false));
     await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().setInternet({ mode: 'tunnel' }));
     await relay.closeRelay();
+  }
+});
+
+// Opt-in (needs cloudflared and internet): STAGECUE_E2E_REAL_TUNNEL=1
+test('a phone reaches the app through a real Cloudflare tunnel', async () => {
+  test.skip(process.env.STAGECUE_E2E_REAL_TUNNEL !== '1', 'set STAGECUE_E2E_REAL_TUNNEL=1 to use the real internet');
+  test.setTimeout(150_000);
+  try {
+    await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().setInternet({ mode: 'tunnel' }));
+    const port = 20000 + Math.floor(Math.random() * 20000);
+    await operator.evaluate((p) => window.__STAGECUE_TEST__?.prefs.getState().configureRemote(true, p), port);
+    const remoteInfo = (): Promise<RemoteInfo | null> => operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().remoteInfo ?? null);
+    await expect.poll(async () => (await remoteInfo())?.internet.state, { timeout: 60_000 }).toBe('online');
+    const info = await remoteInfo();
+    if (!info?.internet.publicBase) throw new Error('no tunnel address');
+    const base = info.internet.publicBase;
+    expect(base).toMatch(/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/);
+    const stageLink = info.links.find((l) => l.role === 'stage' && l.scope === 'internet');
+    expect(stageLink?.url).toBe(`${base}/?t=${info.stageToken}`);
+
+    // A brand-new trycloudflare name can take a few seconds to resolve.
+    let status = 0;
+    for (let i = 0; i < 30 && status !== 200; i++) {
+      status = (await fetch(stageLink?.url ?? '').catch(() => null))?.status ?? 0;
+      if (status !== 200) await operator.waitForTimeout(2000);
+    }
+    expect(status).toBe(200);
+
+    const phone = await new Promise<CrewClient>((resolve, reject) => {
+      const ws = new WebSocket(`${base.replace('https://', 'wss://')}/ws?t=${info.stageToken}`);
+      const queue: Array<Record<string, unknown>> = [];
+      ws.addEventListener('message', (e) => queue.push(JSON.parse(String(e.data)) as Record<string, unknown>));
+      ws.addEventListener('error', () => reject(new Error('wss rejected')));
+      ws.addEventListener('open', () =>
+        resolve({
+          ws,
+          send: (m) => ws.send(JSON.stringify(m)),
+          next: async (type, timeoutMs = 10_000) => {
+            const deadline = Date.now() + timeoutMs;
+            for (;;) {
+              const i = queue.findIndex((m) => m.type === type);
+              if (i >= 0) return queue.splice(i, 1)[0];
+              if (Date.now() > deadline) throw new Error(`timed out waiting for ${type}`);
+              await new Promise((r) => setTimeout(r, 25));
+            }
+          }
+        })
+      );
+    });
+    expect(await phone.next('hello')).toMatchObject({ role: 'stage' });
+    let cues: Array<{ id: string }> = [];
+    while (cues.length === 0) cues = (await phone.next('cues')).cues as typeof cues;
+    const live = await liveCueId();
+    const target = cues.find((c) => c.id !== live) ?? cues[0];
+    await operator.waitForTimeout(350);
+    const sent = Date.now();
+    phone.send({ type: 'action', action: 'take-cue', cueId: target.id, requestId: 'cf1' });
+    expect(await phone.next('ack')).toMatchObject({ requestId: 'cf1', ok: true });
+    console.log(`real tunnel ${base}: command round trip ${Date.now() - sent} ms`);
+    await expect.poll(liveCueId).toBe(target.id);
+    await expect.poll(async () => (await remoteInfo())?.clients.some((c) => c.via === 'internet')).toBe(true);
+    phone.ws.close();
+  } finally {
+    await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().configureRemote(false));
   }
 });
 

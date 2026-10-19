@@ -183,6 +183,14 @@ npm test           # 143 unit tests
 npm run test:e2e   # 16 Playwright Electron tests (opens real windows)
 ```
 
+Testing an installed build (e.g. a release downloaded from GitHub) with throwaway app data, plus the opt-in real-internet tunnel test:
+
+```powershell
+$env:STAGECUE_E2E_EXECUTABLE = "$env:LOCALAPPDATA\Programs\StageCue AV\StageCue AV.exe"
+$env:STAGECUE_E2E_REAL_TUNNEL = "1"   # needs cloudflared + internet
+npx playwright test
+```
+
 | Suite | Covers |
 | --- | --- |
 | `audioEngine.test.ts` | duck formula & attenuation, τ calculations, anchored ramps, idempotent ducking, mute, equal-power crossfades, F9 fade + bus restore, analyser levels, decode errors |

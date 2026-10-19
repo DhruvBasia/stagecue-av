@@ -31,7 +31,10 @@ function report(ok, label, detail = '') {
 function upgradeOutcome(url, headers) {
   return new Promise((resolve) => {
     const ws = new WebSocket(url, { headers, handshakeTimeout: 90_000 });
-    ws.on('unexpected-response', (_req, res) => resolve({ status: res.statusCode }));
+    ws.on('unexpected-response', (_req, res) => {
+      ws.terminate(); // a refused upgrade is not closed for us; behind a proxy it would linger
+      resolve({ status: res.statusCode });
+    });
     ws.on('open', () => {
       ws.close();
       resolve({ status: 101 });
@@ -63,7 +66,10 @@ function nextMessage(ws, predicate, timeoutMs = 15_000) {
 function opened(ws) {
   return new Promise((resolve, reject) => {
     ws.once('open', resolve);
-    ws.once('unexpected-response', (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
+    ws.once('unexpected-response', (_req, res) => {
+      ws.terminate();
+      reject(new Error(`HTTP ${res.statusCode}`));
+    });
     ws.once('error', reject);
   });
 }

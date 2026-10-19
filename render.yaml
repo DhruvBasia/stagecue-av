@@ -1,0 +1,19 @@
+# Render Blueprint: the StageCue relay (permanent crew-phone link over any network).
+# The desktop app is not deployed here; it runs on the AV laptop.
+services:
+  - type: web
+    name: stagecue-relay
+    runtime: node
+    plan: free
+    rootDir: relay
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Laptops must send this key to open a room. Copy it from the Render dashboard
+      # into StageCue → Settings → Connection → Host key.
+      - key: RELAY_HOST_KEY
+        generateValue: true

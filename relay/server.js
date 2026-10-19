@@ -231,6 +231,6 @@ module.exports = { createRelayServer };
 if (require.main === module) {
   const port = Number(process.env.PORT || 8080);
   createRelayServer().listen(port, () => {
-    console.log(`StageCue relay listening on :${port}`);
+    console.log(`StageCue relay listening on :${port} (host key ${process.env.RELAY_HOST_KEY ? 'required' : 'not set'})`);
   });
 }

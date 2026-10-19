@@ -18,6 +18,19 @@ Built with **Electron 31 · React 18 · TypeScript · Zustand · Tailwind CSS ·
 
 Uninstall from Windows Settings → Apps → *StageCue AV*.
 
+### Optional: permanent crew link (relay on Render)
+
+The Cloudflare tunnel address changes every time StageCue starts. For a link that never changes, so printed QR codes keep working, deploy the relay for free:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/DhruvBasia/stagecue-av)
+
+1. Click the button, sign in to Render and allow it to access this repo. Then click **Deploy Blueprint**, which creates the free service *stagecue-relay*.
+2. Check it: `node relay/check.js https://<your-service>.onrender.com` (every line should say PASS).
+3. In Render → stagecue-relay → **Environment**, copy `RELAY_HOST_KEY`.
+4. In StageCue, open Settings → Crew remote → Connection → *Internet* → **My relay server**, then paste the URL and the host key. Wait for **ONLINE**.
+
+Details: [relay/README.md](relay/README.md). If you use Claude Code, ask it to *"set up StageCue for me"*; [CLAUDE.md](CLAUDE.md) has the steps.
+
 ---
 
 ## Quick start (developers)

@@ -41,6 +41,23 @@ The relay **must be served over HTTPS** (`wss://`). Phone browsers and mobile ne
 
 Free tiers that sleep when idle are fine. Open the relay URL once before the show to wake it.
 
+## Check a deployment
+
+From a checkout of this repo (after `npm install`), run:
+
+```bash
+node relay/check.js https://stagecue-relay-xxxx.onrender.com
+```
+
+This checks health, the offline page, and that phones and laptops without the host key are turned away. To also run a full laptop ⇄ relay ⇄ phone round trip (crew page, both message directions, wrong link refused, offline notice), set the host key in your own shell first. It is never printed.
+
+```powershell
+$env:STAGECUE_RELAY_HOST_KEY = "<paste from Render → Environment>"
+node relay/check.js https://stagecue-relay-xxxx.onrender.com
+```
+
+Every line should read `PASS`, and the exit code is 0 when all checks pass.
+
 ## Use it in StageCue
 
 1. Go to Settings → Crew remote → **Connection** → *Internet* → **My relay server**.

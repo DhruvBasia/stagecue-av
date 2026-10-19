@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------------ */
+/* StageCue AV — high-contrast dark console theme                           */
+/* ------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: dark;
+  --av-bg: #0d1117;
+  --av-panel: #161b22;
+  --av-raised: #21262d;
+  --av-border: #30363d;
+  --av-text: #e6edf3;
+  --av-muted: #8b949e;
+  --av-blue: #38bdf8;
+  --av-amber: #fbbf24;
+  --av-red: #f87171;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--av-bg);
+  color: var(--av-text);
+  font-family: theme('fontFamily.sans');
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+input,
+textarea,
+select {
+  user-select: text;
+}
+
+/* Scrollbars that do not shout in a dark venue */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+  background-clip: padding-box;
+}
+
+select option {
+  background-color: var(--av-panel);
+  color: var(--av-text);
+}
+
+input[type='search']::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* ------------------------------ Range faders ----------------------------- */
+
+.av-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+  --slider-fill: 0%;
+  --slider-accent: var(--av-blue);
+}
+
+.av-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.av-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--slider-accent) 0%,
+    var(--slider-accent) var(--slider-fill),
+    #30363d var(--slider-fill),
+    #30363d 100%
+  );
+}
+
+.av-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: #e6edf3;
+  border: 2px solid var(--slider-accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.av-range:focus-visible {
+  outline: none;
+}
+
+.av-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45);
+}
+
+/* Vertical mixing-desk fader */
+.av-range-vertical {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 26px;
+  height: 100%;
+  min-height: 110px;
+}
+
+.av-range-vertical::-webkit-slider-runnable-track {
+  width: 8px;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    to top,
+    var(--slider-accent) 0%,
+    var(--slider-accent) var(--slider-fill),
+    #30363d var(--slider-fill),
+    #30363d 100%
+  );
+}
+
+.av-range-vertical::-webkit-slider-thumb {
+  width: 24px;
+  height: 12px;
+  margin-top: 0;
+  margin-left: -8px;
+  border-radius: 3px;
+  background: linear-gradient(to bottom, #e6edf3 0%, #e6edf3 40%, var(--slider-accent) 40%, var(--slider-accent) 60%, #e6edf3 60%);
+}
+
+/* ------------------------------ Media layers ----------------------------- */
+
+/* Never stretch: 4:3, 16:9 and 16:10 projectors all get letterboxing on black. */
+.media-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000000;
+}
+
+.monitor-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000000;
+}
+
+.stage-root {
+  background: #000000;
+}
+
+.stage-root video::-webkit-media-controls,
+.stage-root video::-webkit-media-controls-enclosure {
+  display: none !important;
+}
+
+.stage-drag-region {
+  -webkit-app-region: drag;
+}
+
+.cursor-none,
+.cursor-none * {
+  cursor: none !important;
+}

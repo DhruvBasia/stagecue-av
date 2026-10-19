@@ -1,0 +1,17 @@
+{
+  "name": "stagecue-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay so StageCue crew phones can reach the AV laptop from any network or mobile data",
+  "main": "server.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "8.18.0"
+  }
+}

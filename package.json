@@ -1,0 +1,103 @@
+{
+  "name": "stagecue-av",
+  "version": "1.0.0",
+  "description": "StageCue AV - seamless dual-screen media & presentation controller for live events",
+  "main": "./out/main/index.js",
+  "author": "StageCue AV",
+  "license": "MIT",
+  "private": true,
+  "homepage": "https://github.com/DhruvBasia/stagecue-av",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "electron-vite build && playwright test",
+    "build:app": "electron-vite build",
+    "build": "npm run typecheck && electron-vite build && electron-builder",
+    "build:win": "npm run typecheck && electron-vite build && electron-builder --win",
+    "build:mac": "npm run typecheck && electron-vite build && electron-builder --mac",
+    "build:linux": "npm run typecheck && electron-vite build && electron-builder --linux",
+    "build:unpack": "electron-vite build && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.stagecue.av",
+    "productName": "StageCue AV",
+    "copyright": "Copyright © 2026 StageCue AV",
+    "directories": {
+      "output": "release/${version}",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "StageCue-AV-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "StageCue AV"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video",
+      "artifactName": "StageCue-AV-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo",
+      "artifactName": "StageCue-AV-${version}-${arch}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^20.17.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "lucide-react": "^0.460.0",
+    "pdfjs-dist": "4.10.38",
+    "postcss": "^8.4.49",
+    "qrcode-generator": "1.4.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8",
+    "zustand": "^4.5.5"
+  },
+  "allowScripts": {
+    "electron@31.7.7": true,
+    "esbuild@0.21.5": true
+  },
+  "dependencies": {
+    "ws": "8.18.0"
+  }
+}

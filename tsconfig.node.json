@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/renderer/src/types/**/*",
+    "tests/unit/displayManager.test.ts",
+    "tests/unit/protocolHandler.test.ts",
+    "tests/unit/mediaScanner.test.ts",
+    "tests/unit/pdfCache.test.ts",
+    "tests/unit/remoteServer.test.ts",
+    "tests/unit/presentationConverter.test.ts",
+    "tests/unit/driveSync.test.ts",
+    "tests/unit/internetAccess.test.ts",
+    "relay/server.d.ts",
+    "tests/e2e/**/*"
+  ]
+}

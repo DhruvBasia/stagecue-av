@@ -84,6 +84,20 @@ Extra scripts:
 7. **Print the run sheet** (Ctrl+P) or export it as PDF (Ctrl+E) for the stage manager. It has a thumbnail, media, music level, transition, follow rule, notes and a tick box per cue.
 8. **Run it**: the highlighted cue (green, **NEXT**) appears in **Preview**. **Space** takes it live and moves the highlight to the next cue.
 
+### Booklets, web flipbooks and live windows
+A souvenir booklet, a slide deck or the annual magazine is **one cue whose pages you turn live**. You don't need one cue per page.
+
+- **PDF booklet / PowerPoint deck**: make a cue from its first page (hover a page in the library → **Cue**), or tick *One cue per PDF / slide deck* when building cues from a folder. When it's live, the Program monitor shows ⏮ ◀ **Page 3 / 34** ▶ ⏭, and you can type a page number. Pages change with a quick dissolve and the cue stays live.
+- **Web page (online flipbook magazine)**: go to Library → **Live** → **Web page** and paste the address (e.g. the Netted Bytes flipbook). StageCue checks the address and takes a snapshot, then you make it a cue like any other. When it's live, the page runs on the projector and the Program monitor shows a **live, clickable picture** of it:
+  - click or drag on the picture, or scroll it, and the same happens on the projector (flip a corner, press the flipbook's own buttons);
+  - ◀ **Next** send the page's arrow keys, which turns most flipbooks; ← ⌂ ⟳ go back, start again or reload, and 🔇 switches page sound on or off (muted by default);
+  - ⤢ opens a bigger live view;
+  - freeze (F8) holds a still of the page while you keep flipping underneath.
+
+  Web pages need internet during the show. The pre-show check opens every address, so keep a PDF of the magazine as a backup.
+- **Window / screen**: go to Library → **Live** → **Window / screen**, then pick any app window (a browser, Canva, a scoreboard) or a whole screen. The audience sees it live while you work in it on the laptop. If the app was restarted, StageCue finds the window again by its title.
+- **Turning pages**: use the buttons, **[ / ]** on the keyboard, the **clicker** (PgDn/→ next page, PgUp/← previous; after the last page the clicker moves on to the next cue), or a crew phone (◀ PAGE / PAGE ▶ appear while a booklet is live, allowed with *GO / play cues*). Use **Space** to go on to the next cue at any time.
+
 ### Cue tracking rules
 | Cue field | If set | If empty |
 | --- | --- | --- |
@@ -100,6 +114,7 @@ Extra scripts:
 | **F4** | **Instant Backdrop**: drop the video, show the poster |
 | **F9** | **Fade Audio**: background music fades out over 3 s |
 | ↑ / ↓ | Move the highlight |
+| [ / ] | Previous / next page of the live PDF booklet, slide deck or web flipbook |
 | Shift+P | Play / pause the program video |
 | Ctrl+N / O / S / Shift+S / I | New / Open / Save / Save As / Import |
 
@@ -109,7 +124,7 @@ F4, F8 and F9 work even while typing or inside a dialog.
 | Setting | Scope | What it does |
 | --- | --- | --- |
 | Auto-follow | show | Master ON/OFF for every cue's follow rule |
-| Presentation clicker | this laptop | **PgDn / →** TAKE · **PgUp / ←** previous cue · **B / .** blackout (the clicker's "blank screen" key) |
+| Presentation clicker | this laptop | **PgDn / →** TAKE · **PgUp / ←** previous cue · **B / .** blackout (the clicker's "blank screen" key). With *Clicker turns pages* ON (default), while a booklet / deck / web flipbook is live, forward/back turn its pages instead. |
 | Crew remote | this laptop | Off by default. Phones and tablets connect over a WebSocket and get instant updates. Two QR links: **Stage team** (only what you allow) and **AV operator phone** (full control). Links survive restarts; *New links* revokes old QR codes and disconnects those phones. The first time, allow StageCue AV through the Windows firewall on **private** networks. |
 | Audio output | show | Sends music and video audio to HDMI, the headphone jack or a USB interface (also selectable in the mixer). If that device is unplugged, audio falls back to the system default and switches back automatically when it returns. |
 
@@ -192,8 +207,8 @@ Shows save as `*.stagecue.json`. Each file stores absolute **and** show-relative
 ## Tests
 
 ```bash
-npm test           # 143 unit tests
-npm run test:e2e   # 16 Playwright Electron tests (opens real windows)
+npm test           # 162 unit tests
+npm run test:e2e   # 19 Playwright Electron tests (opens real windows), plus 2 opt-in internet tests
 ```
 
 Testing an installed build (e.g. a release downloaded from GitHub) with throwaway app data, plus the opt-in real-internet tunnel test:
@@ -201,6 +216,7 @@ Testing an installed build (e.g. a release downloaded from GitHub) with throwawa
 ```powershell
 $env:STAGECUE_E2E_EXECUTABLE = "$env:LOCALAPPDATA\Programs\StageCue AV\StageCue AV.exe"
 $env:STAGECUE_E2E_REAL_TUNNEL = "1"   # needs cloudflared + internet
+$env:STAGECUE_E2E_REAL_WEB = "1"      # opens the real Netted Bytes flipbook and turns its pages
 npx playwright test
 ```
 

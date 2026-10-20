@@ -143,6 +143,20 @@ export function BuildCuesModal({ folder, onClose }: BuildCuesModalProps): JSX.El
             />
             Skip files already used in a cue
           </label>
+          {inFolder.some((i) => i.pdf) ? (
+            <label className="flex cursor-pointer items-start gap-2 px-1 pt-1 text-xs text-av-muted">
+              <input
+                type="checkbox"
+                checked={options.pdfAsBooklet}
+                onChange={(e) => patch({ pdfAsBooklet: e.target.checked })}
+                className="mt-0.5 h-4 w-4 accent-sky-400"
+                data-testid="build-pdf-booklet"
+              />
+              <span>
+                One cue per PDF / slide deck <span className="text-av-dim">(booklet: turn its pages live instead of one cue per page)</span>
+              </span>
+            </label>
+          ) : null}
 
           <p className="pt-2 text-[11px] font-semibold uppercase tracking-wider text-av-muted">Transition</p>
           <div className="flex gap-1 rounded-md border border-av-border bg-av-bg p-1">

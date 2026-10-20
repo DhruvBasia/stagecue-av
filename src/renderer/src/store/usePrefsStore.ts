@@ -31,6 +31,8 @@ export const DEFAULT_REMOTE_PORT = 8787;
 
 export interface Prefs {
   clickerEnabled: boolean;
+  /** While a PDF booklet or web page is live, clicker Next/Back turn its pages instead of moving through cues. */
+  clickerTurnsPages: boolean;
   remoteEnabled: boolean;
   remotePort: number;
   operatorToken: string;
@@ -42,6 +44,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   clickerEnabled: true,
+  clickerTurnsPages: true,
   remoteEnabled: false,
   remotePort: DEFAULT_REMOTE_PORT,
   operatorToken: '',
@@ -77,6 +80,7 @@ export function parsePrefs(text: string | null): Prefs {
     const bool = (value: unknown, fallback: boolean): boolean => (typeof value === 'boolean' ? value : fallback);
     return {
       clickerEnabled: bool(raw.clickerEnabled, DEFAULT_PREFS.clickerEnabled),
+      clickerTurnsPages: bool(raw.clickerTurnsPages, DEFAULT_PREFS.clickerTurnsPages),
       remoteEnabled: bool(raw.remoteEnabled, DEFAULT_PREFS.remoteEnabled),
       remotePort: port >= 1024 && port <= 65535 ? port : DEFAULT_REMOTE_PORT,
       operatorToken: typeof raw.operatorToken === 'string' && TOKEN_PATTERN.test(raw.operatorToken) ? raw.operatorToken : '',
@@ -115,6 +119,7 @@ export interface PrefsStoreState extends Prefs {
   remoteInfo: RemoteInfo | null;
   remoteBusy: boolean;
   setClickerEnabled: (enabled: boolean) => void;
+  setClickerTurnsPages: (enabled: boolean) => void;
   configureRemote: (enabled: boolean, port?: number) => Promise<RemoteInfo | null>;
   regenerateLinks: () => Promise<RemoteInfo | null>;
   setStagePermission: (key: keyof StageTeamPermissions, value: boolean) => Promise<void>;
@@ -126,8 +131,9 @@ export interface PrefsStoreState extends Prefs {
 export const usePrefsStore = create<PrefsStoreState>((set, get) => {
   const initial = typeof window !== 'undefined' ? load() : parsePrefs(null);
   const persist = (): void => {
-    const { clickerEnabled, remoteEnabled, remotePort, operatorToken, stageToken, stagePermissions, stageLocked, internet } = get();
-    save({ clickerEnabled, remoteEnabled, remotePort, operatorToken, stageToken, stagePermissions, stageLocked, internet });
+    const { clickerEnabled, clickerTurnsPages, remoteEnabled, remotePort, operatorToken, stageToken, stagePermissions, stageLocked, internet } =
+      get();
+    save({ clickerEnabled, clickerTurnsPages, remoteEnabled, remotePort, operatorToken, stageToken, stagePermissions, stageLocked, internet });
   };
 
   const apply = async (enabled: boolean, port: number, regenerate: boolean): Promise<RemoteInfo | null> => {
@@ -183,6 +189,11 @@ export const usePrefsStore = create<PrefsStoreState>((set, get) => {
 
     setClickerEnabled: (enabled) => {
       set({ clickerEnabled: enabled });
+      persist();
+    },
+
+    setClickerTurnsPages: (enabled) => {
+      set({ clickerTurnsPages: enabled });
       persist();
     },
 

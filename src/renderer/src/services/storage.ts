@@ -53,6 +53,8 @@ export function serializeShow(input: ShowSnapshotInput, now: Date = new Date()):
       if (m.duration !== undefined && Number.isFinite(m.duration)) ref.duration = m.duration;
       if (m.dimensions) ref.dimensions = { ...m.dimensions };
       if (m.pdf) ref.pdf = { ...m.pdf };
+      if (m.web) ref.web = { ...m.web };
+      if (m.capture) ref.capture = { ...m.capture };
       return ref;
     }),
     cues: renumberCues(input.cues).map((c) => ({ ...c })),
@@ -73,7 +75,16 @@ export function parseFolders(raw: unknown): string[] {
   return [...unique];
 }
 
-const MEDIA_TYPES: readonly MediaType[] = ['image', 'video', 'audio'];
+const MEDIA_TYPES: readonly MediaType[] = ['image', 'video', 'audio', 'web', 'screen'];
+
+function isWebAddress(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
 const TRANSITIONS: readonly TransitionType[] = ['cut', 'fade', 'dissolve'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -99,6 +110,17 @@ export function parseMediaRef(raw: unknown, index: number): StoredMediaRef {
   const type = raw.type as MediaType;
   if (!id || !filePath) throw new ShowFileError(`Media entry #${index + 1} is missing its id or file path.`);
   if (!MEDIA_TYPES.includes(type)) throw new ShowFileError(`Media entry #${index + 1} has an unknown type.`);
+  if (type === 'web') {
+    const url = isRecord(raw.web) ? optionalString(raw.web.url) : undefined;
+    if (!url || !isWebAddress(url)) throw new ShowFileError(`Web page #${index + 1} has no valid http(s) address.`);
+    return { id, type, filePath: url, name: optionalString(raw.name) ?? url, web: { url } };
+  }
+  if (type === 'screen') {
+    const sourceId = isRecord(raw.capture) ? optionalString(raw.capture.sourceId) : undefined;
+    const kind = isRecord(raw.capture) && raw.capture.kind === 'screen' ? 'screen' : 'window';
+    if (!sourceId) throw new ShowFileError(`Window capture #${index + 1} has no source.`);
+    return { id, type, filePath, name: optionalString(raw.name) ?? filePath, capture: { sourceId, kind } };
+  }
   const ref: StoredMediaRef = {
     id,
     filePath,

@@ -30,10 +30,11 @@ Work through these in order, and verify each step before moving on.
 | | |
 | --- | --- |
 | `npm run typecheck` | Strict TS for main/preload (`tsconfig.node.json`) and renderer (`tsconfig.json`) |
-| `npm test` | Vitest unit suite: 143 tests, including relay and tunnel tests against a local relay |
-| `npm run test:e2e` | Builds, then runs 16 Playwright tests that drive the real two-window app (opens windows) |
+| `npm test` | Vitest unit suite: 162 tests, including relay and tunnel tests against a local relay |
+| `npm run test:e2e` | Builds, then runs 19 Playwright tests that drive the real two-window app (opens windows) |
 | `$env:STAGECUE_E2E_EXECUTABLE="<path>\StageCue AV.exe"; npx playwright test` | Same suite against an **installed** build, with throwaway app data |
 | `$env:STAGECUE_E2E_REAL_TUNNEL="1"` | Adds the opt-in test through a real Cloudflare tunnel (needs cloudflared + internet) |
+| `$env:STAGECUE_E2E_REAL_WEB="1"` | Adds the opt-in test that opens the real Netted Bytes flipbook and turns its pages |
 | `npm run build` | Typecheck, then bundle, then the NSIS installer in `release/<version>/` |
 
 Before calling a setup "working", run the typecheck, `npm test`, `npm run test:e2e`, and `relay/check.js` against any deployed relay.
@@ -57,6 +58,7 @@ Before calling a setup "working", run the typecheck, `npm test`, `npm run test:e
   - `remoteServer.ts`: the crew WebSocket server;
   - `internetAccess.ts`: the Cloudflare tunnel and relay link;
   - `remotePage.ts`: the phone page;
+  - `webStage.ts`: web-page cues (sandboxed `<webview>` on stage, live picture + input forwarding to the operator, freeze still) and window/screen capture;
   - `driveSync.ts`, `pdfCache.ts`, `presentationConverter.ts`, `mediaScanner.ts`, `runSheetExporter.ts`.
 - `src/preload/`: sandboxed, role-based IPC bridge.
 - `src/renderer/src/`: `operator.tsx`, `stage.tsx`, `store/` (Zustand), `services/` (audio engine, cue logic, follow engine…), `components/`.

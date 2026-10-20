@@ -184,7 +184,8 @@ describe('pre-show check', () => {
         return item.id === 'broken'
           ? { ok: false, problem: 'Codec/format not supported by the player' }
           : { ok: true, duration: item.duration, dimensions: item.id === 'poster' ? { width: 9000, height: 5000 } : undefined };
-      }
+      },
+      checkLive: async () => ({ ok: true })
     });
     expect(mediaUsedByCues(ctx().cues, library).map((m) => m.id)).toEqual(['poster', 'track', 'kulgeet', 'gone', 'broken']);
     expect(probed).toEqual(['poster', 'kulgeet', 'broken']);
@@ -212,9 +213,54 @@ describe('pre-show check', () => {
         },
         cues: [createCue({ id: 'c1', backdropMediaId: 'poster' }, 1)]
       }),
-      { findMissingFiles: async () => new Set(), probe: async () => ({ ok: true }) }
+      { findMissingFiles: async () => new Set(), probe: async () => ({ ok: true }), checkLive: async () => ({ ok: true }) }
     );
     expect(report).toMatchObject({ ready: true, errors: 0, warnings: 0, cuesChecked: 1, mediaChecked: 1 });
+  });
+
+  it('checks web pages over the internet and windows on this laptop instead of decoding files', async () => {
+    const web: MediaItem = {
+      id: 'mag',
+      name: 'Netted Bytes',
+      type: 'web',
+      filePath: 'https://fests.example.dev/netted-bytes',
+      fileUrl: 'https://fests.example.dev/netted-bytes',
+      web: { url: 'https://fests.example.dev/netted-bytes' }
+    };
+    const win: MediaItem = {
+      id: 'win',
+      name: 'Scoreboard',
+      type: 'screen',
+      filePath: 'Scoreboard',
+      fileUrl: '',
+      capture: { sourceId: 'window:42:0', kind: 'window' }
+    };
+    const filesAsked: string[] = [];
+    const liveAsked: string[] = [];
+    const report = await runPreshowCheck(
+      ctx({
+        items: [web, win],
+        cues: [createCue({ id: 'c1', backdropMediaId: 'mag' }, 1), createCue({ id: 'c2', backdropMediaId: 'win' }, 2)]
+      }),
+      {
+        findMissingFiles: async (items) => {
+          filesAsked.push(...items.map((i) => i.id));
+          return new Set();
+        },
+        probe: async () => ({ ok: true }),
+        checkLive: async (item) => {
+          liveAsked.push(item.id);
+          return item.type === 'web' ? { ok: false, problem: 'No internet connection' } : { ok: false };
+        }
+      }
+    );
+    expect(filesAsked).toEqual([]);
+    expect(liveAsked).toEqual(['mag', 'win']);
+    const byTitle = new Map(report.issues.map((i) => [i.title, i] as const));
+    expect(byTitle.get('Web page not reachable: Netted Bytes')).toMatchObject({ level: 'error', detail: 'No internet connection' });
+    expect(byTitle.get('Window not open: Scoreboard')?.level).toBe('warning');
+    expect(byTitle.get('Web pages need internet during the show')?.level).toBe('info');
+    expect(report.issues.some((i) => i.title.includes('wrong file type'))).toBe(false);
   });
 });
 
@@ -265,9 +311,11 @@ describe('presentation clicker keys', () => {
   const off = { ...on, clickerEnabled: false };
 
   it('maps clicker keys only while the clicker setting is ON', () => {
-    expect(matchHotkey(key('PageDown', 'PageDown'), on)?.action).toBe('take');
-    expect(matchHotkey(key('ArrowRight', 'ArrowRight'), on)?.action).toBe('take');
-    expect(matchHotkey(key('PageUp', 'PageUp'), on)?.action).toBe('prev-cue');
+    // Forward/back: TAKE / previous cue, or turn the page while a PDF / web page is live (decided when run).
+    expect(matchHotkey(key('PageDown', 'PageDown'), on)?.action).toBe('clicker-next');
+    expect(matchHotkey(key('ArrowRight', 'ArrowRight'), on)?.action).toBe('clicker-next');
+    expect(matchHotkey(key('PageUp', 'PageUp'), on)?.action).toBe('clicker-prev');
+    expect(matchHotkey(key('ArrowLeft', 'ArrowLeft'), on)?.action).toBe('clicker-prev');
     expect(matchHotkey(key('KeyB', 'b'), on)?.action).toBe('blackout');
     expect(matchHotkey(key('Period', '.'), on)?.action).toBe('blackout');
     expect(matchHotkey(key('PageDown', 'PageDown'), off)).toBeNull();
@@ -277,5 +325,11 @@ describe('presentation clicker keys', () => {
     // never while typing or on a fader
     expect(matchHotkey(key('KeyB', 'b'), { ...on, focus: 'text' })).toBeNull();
     expect(matchHotkey(key('ArrowRight', 'ArrowRight'), { ...on, focus: 'slider' })).toBeNull();
+  });
+
+  it('turns booklet pages with [ and ] whatever the clicker setting', () => {
+    expect(matchHotkey(key('BracketRight', ']'), off)?.action).toBe('page-next');
+    expect(matchHotkey(key('BracketLeft', '['), off)?.action).toBe('page-prev');
+    expect(matchHotkey(key('BracketRight', ']'), { ...off, focus: 'text' })).toBeNull();
   });
 });

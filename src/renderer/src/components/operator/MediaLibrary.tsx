@@ -1,9 +1,11 @@
 import {
   AlertTriangle,
+  AppWindow,
   Cloud,
   Film,
   FolderOpen,
   FolderPlus,
+  Globe,
   ImageIcon,
   ListOrdered,
   ListPlus,
@@ -28,12 +30,20 @@ import { useDriveStore } from '../../store/useDriveStore';
 import { BuildCuesModal } from './BuildCuesModal';
 import { DriveModal } from './DriveModal';
 import { MEDIA_DRAG_TYPE } from './CueList';
+import { AddWebPageModal, CapturePickerModal } from './LiveSourceModals';
 
-const BINS: Array<{ type: MediaType; short: string; icon: JSX.Element }> = [
-  { type: 'image', short: 'Backdrops', icon: <ImageIcon size={14} /> },
-  { type: 'video', short: 'Videos', icon: <Film size={14} /> },
-  { type: 'audio', short: 'Tracks', icon: <Music size={14} /> }
+type BinKey = 'image' | 'video' | 'audio' | 'live';
+
+const BINS: Array<{ key: BinKey; types: MediaType[]; short: string; label: string; icon: JSX.Element }> = [
+  { key: 'image', types: ['image'], short: 'Backdrops', label: MEDIA_TYPE_LABEL.image, icon: <ImageIcon size={14} /> },
+  { key: 'video', types: ['video'], short: 'Videos', label: MEDIA_TYPE_LABEL.video, icon: <Film size={14} /> },
+  { key: 'audio', types: ['audio'], short: 'Tracks', label: MEDIA_TYPE_LABEL.audio, icon: <Music size={14} /> },
+  { key: 'live', types: ['web', 'screen'], short: 'Live', label: 'Web pages & windows', icon: <Globe size={14} /> }
 ];
+
+function binOf(type: MediaType): BinKey {
+  return type === 'web' || type === 'screen' ? 'live' : type;
+}
 
 function MediaCard({ item, probing, isNew }: { item: MediaItem; probing: boolean; isNew: boolean }): JSX.Element {
   const addMediaAsCue = useStageStore((s) => s.addMediaAsCue);
@@ -75,6 +85,10 @@ function MediaCard({ item, probing, isNew }: { item: MediaItem; probing: boolean
               <Music size={22} />
             ) : item.type === 'video' ? (
               <Film size={22} />
+            ) : item.type === 'web' ? (
+              <Globe size={22} />
+            ) : item.type === 'screen' ? (
+              <AppWindow size={22} />
             ) : (
               <ImageIcon size={22} />
             )}
@@ -111,6 +125,14 @@ function MediaCard({ item, probing, isNew }: { item: MediaItem; probing: boolean
         {item.duration !== undefined ? (
           <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 font-mono text-[10px] text-av-text">
             {formatTime(item.duration)}
+          </span>
+        ) : null}
+        {item.type === 'web' || item.type === 'screen' ? (
+          <span
+            className="absolute bottom-1 right-1 rounded bg-av-blue/90 px-1 font-mono text-[10px] font-bold text-av-bg"
+            data-testid="live-badge"
+          >
+            {item.type === 'web' ? 'WEB' : item.capture?.kind === 'screen' ? 'SCREEN' : 'WINDOW'}
           </span>
         ) : null}
         <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
@@ -376,30 +398,33 @@ export function MediaLibrary(): JSX.Element {
   const importFromDialog = useMediaStore((s) => s.importFromDialog);
   const importFolderFromDialog = useMediaStore((s) => s.importFolderFromDialog);
   const importDroppedFiles = useMediaStore((s) => s.importDroppedFiles);
-  const [bin, setBin] = useState<MediaType>('image');
+  const [bin, setBin] = useState<BinKey>('image');
   const [query, setQuery] = useState('');
   const [dropHover, setDropHover] = useState(false);
   const [buildFolder, setBuildFolder] = useState<string | null>(null);
   const [driveOpen, setDriveOpen] = useState(false);
+  const [webOpen, setWebOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const newIds = useMediaStore((s) => s.newIds);
   const clearNew = useMediaStore((s) => s.clearNew);
+  const binInfo = BINS.find((b) => b.key === bin) ?? BINS[0];
 
   const counts = useMemo(() => {
-    const result: Record<MediaType, number> = { image: 0, video: 0, audio: 0 };
-    for (const item of items) result[item.type] += 1;
+    const result: Record<BinKey, number> = { image: 0, video: 0, audio: 0, live: 0 };
+    for (const item of items) result[binOf(item.type)] += 1;
     return result;
   }, [items]);
 
   const newCounts = useMemo(() => {
-    const result: Record<MediaType, number> = { image: 0, video: 0, audio: 0 };
-    for (const item of items) if (newIds[item.id]) result[item.type] += 1;
+    const result: Record<BinKey, number> = { image: 0, video: 0, audio: 0, live: 0 };
+    for (const item of items) if (newIds[item.id]) result[binOf(item.type)] += 1;
     return result;
   }, [items, newIds]);
-  const totalNew = newCounts.image + newCounts.video + newCounts.audio;
+  const totalNew = newCounts.image + newCounts.video + newCounts.audio + newCounts.live;
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return items.filter((i) => i.type === bin && (q === '' || i.name.toLowerCase().includes(q)));
+    return items.filter((i) => binOf(i.type) === bin && (q === '' || i.name.toLowerCase().includes(q)));
   }, [items, bin, query]);
 
   return (
@@ -432,8 +457,8 @@ export function MediaLibrary(): JSX.Element {
               size="sm"
               variant="secondary"
               icon={<Upload size={13} />}
-              onClick={() => void importFromDialog([bin])}
-              title={`Import files into ${MEDIA_TYPE_LABEL[bin]} (Ctrl+I imports any type)`}
+              onClick={() => void importFromDialog(bin === 'live' ? ['image', 'video', 'audio'] : [bin])}
+              title={`Import files into ${binInfo.label} (Ctrl+I imports any type)`}
             >
               Files
             </Button>
@@ -462,30 +487,41 @@ export function MediaLibrary(): JSX.Element {
         <DriveSources onBuildCues={setBuildFolder} />
         <LinkedFolders onBuildCues={setBuildFolder} />
         <PdfProgress />
-        <div className="mt-2 grid grid-cols-3 gap-1 rounded-md bg-av-bg p-0.5" role="tablist">
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-av-bg p-0.5" role="tablist">
           {BINS.map((b) => (
             <button
-              key={b.type}
+              key={b.key}
               type="button"
               role="tab"
-              aria-selected={bin === b.type}
-              onClick={() => setBin(b.type)}
-              className={`flex items-center justify-center gap-1 rounded px-1 py-1 text-[11px] font-semibold ${
-                bin === b.type ? 'bg-av-raised text-av-text' : 'text-av-muted hover:text-av-text'
+              aria-selected={bin === b.key}
+              onClick={() => setBin(b.key)}
+              className={`flex min-w-0 items-center justify-center gap-1 rounded px-0.5 py-1 text-[11px] font-semibold ${
+                bin === b.key ? 'bg-av-raised text-av-text' : 'text-av-muted hover:text-av-text'
               }`}
-              title={MEDIA_TYPE_LABEL[b.type]}
+              title={b.label}
+              data-testid={`bin-${b.key}`}
             >
-              {b.icon}
-              {b.short}
-              <span className="font-mono text-[10px] text-av-dim">{counts[b.type]}</span>
-              {newCounts[b.type] > 0 ? (
+              <span className="shrink-0">{b.icon}</span>
+              <span className="truncate">{b.short}</span>
+              <span className="font-mono text-[10px] text-av-dim">{counts[b.key]}</span>
+              {newCounts[b.key] > 0 ? (
                 <span className="rounded bg-av-green px-1 font-mono text-[9px] font-bold text-av-bg" title="New, not used yet">
-                  +{newCounts[b.type]}
+                  +{newCounts[b.key]}
                 </span>
               ) : null}
             </button>
           ))}
         </div>
+        {bin === 'live' ? (
+          <div className="mt-2 grid grid-cols-2 gap-1">
+            <Button size="sm" variant="primary" icon={<Globe size={13} />} onClick={() => setWebOpen(true)} data-testid="add-web-page">
+              Web page
+            </Button>
+            <Button size="sm" variant="primary" icon={<AppWindow size={13} />} onClick={() => setCaptureOpen(true)} data-testid="add-capture">
+              Window / screen
+            </Button>
+          </div>
+        ) : null}
         {totalNew > 0 ? (
           <button
             type="button"
@@ -501,7 +537,7 @@ export function MediaLibrary(): JSX.Element {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search ${MEDIA_TYPE_LABEL[bin].toLowerCase()}…`}
+            placeholder={`Search ${binInfo.label.toLowerCase()}…`}
             className="h-7 w-full rounded-md border border-av-border bg-av-bg pl-7 pr-7 text-xs text-av-text placeholder:text-av-dim focus:border-av-blue focus:outline-none"
           />
           {query ? (
@@ -518,8 +554,18 @@ export function MediaLibrary(): JSX.Element {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-av-dim">{MEDIA_TYPE_LABEL[bin]}</p>
-        {visible.length === 0 ? (
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-av-dim">{binInfo.label}</p>
+        {visible.length === 0 && bin === 'live' ? (
+          <div className="rounded-md border border-dashed border-av-border px-3 py-6 text-center text-xs text-av-muted">
+            <p>
+              <strong className="text-av-text">Web page</strong>: an online flipbook or site, shown live on the projector and
+              flipped from here.
+            </p>
+            <p className="mt-2">
+              <strong className="text-av-text">Window / screen</strong>: show any app window live (a browser, Canva, a scoreboard…).
+            </p>
+          </div>
+        ) : visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-av-border px-3 py-8 text-center">
             <Upload size={22} className="text-av-dim" />
             <p className="text-xs text-av-muted">
@@ -553,6 +599,8 @@ export function MediaLibrary(): JSX.Element {
       </div>
       <BuildCuesModal folder={buildFolder} onClose={() => setBuildFolder(null)} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} />
+      <AddWebPageModal open={webOpen} onClose={() => setWebOpen(false)} />
+      <CapturePickerModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
     </section>
   );
 }

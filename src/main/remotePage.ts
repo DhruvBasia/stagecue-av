@@ -55,6 +55,8 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
   .on-amber { border-color: var(--amber) !important; color: var(--amber) !important; }
   .on-green { border-color: var(--green) !important; color: var(--green) !important; }
   .hidden { display: none !important; }
+  .pagelabel { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-weight: 900; font-size: 15px; font-variant-numeric: tabular-nums; border: 2px dashed var(--border); border-radius: 12px; }
+  .pagelabel small { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: var(--muted); }
   .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--panel); border-radius: 10px; padding: 4px; }
   .tabs button { border: 0; background: transparent; min-height: 38px; font-weight: 800; font-size: 13px; letter-spacing: .06em; color: var(--muted); border-radius: 8px; position: relative; }
   .tabs button.sel { background: var(--raised); color: var(--text); }
@@ -116,6 +118,13 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
   </div>
   <div class="controls" id="controls">
     <button id="go" type="button" data-perm="takeCues" data-action="take">GO<small id="goLabel">—</small></button>
+    <div id="pagesWrap" class="hidden">
+      <div class="row" data-perm="takeCues" style="margin-top:8px">
+        <button type="button" data-action="page-prev">◀ PAGE</button>
+        <div class="pagelabel" id="pageLabel">—</div>
+        <button type="button" class="on-green" data-action="page-next">PAGE ▶</button>
+      </div>
+    </div>
     <div class="row" data-perm="takeCues" style="margin-top:8px">
       <button type="button" data-action="prev-cue">◀ PREV</button>
       <button type="button" id="followBtn" data-perm="autoFollow" data-action="toggle-follow">AUTO</button>
@@ -232,6 +241,14 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
     $('musicBtn').classList.toggle('on-green', !!s.musicPlaying);
     $('followBtn').textContent = 'AUTO ' + (s.autoFollowEnabled ? 'ON' : 'OFF');
     $('followBtn').classList.toggle('on-amber', !!s.autoFollowEnabled);
+    // A PDF booklet / slide deck / web flipbook is live: page buttons.
+    var pg = s.paging || null;
+    $('pagesWrap').classList.toggle('hidden', !pg);
+    if (pg) {
+      var lbl = $('pageLabel'); lbl.replaceChildren();
+      lbl.appendChild(el('small', '', pg.kind === 'web' ? 'WEB PAGE' : 'BOOKLET'));
+      lbl.appendChild(document.createTextNode(pg.page != null ? (pg.page + (pg.pageCount ? ' / ' + pg.pageCount : '')) : '—'));
+    }
     var chips = $('chips'); chips.replaceChildren();
     if (s.isFrozen) chips.appendChild(el('span', 'chip frozen', 'FROZEN'));
     if (s.isBlackout) chips.appendChild(el('span', 'chip black', 'BLACKOUT'));

@@ -77,6 +77,9 @@ function MediaSelect({
         <option key={m.id} value={m.id} disabled={m.missing}>
           {m.name}
           {m.type === 'video' && options.some((o) => o.type === 'image') ? ' (video loop)' : ''}
+          {m.type === 'web' ? ' (web page)' : ''}
+          {m.type === 'screen' ? ' (live window)' : ''}
+          {m.pdf ? ` (${m.pdf.originalPath ? 'slide' : 'page'} ${m.pdf.page}/${m.pdf.pageCount})` : ''}
           {m.missing ? ' — missing' : ''}
         </option>
       ))}
@@ -98,7 +101,10 @@ export function CueEditor({ cueId, onClose }: CueEditorProps): JSX.Element | nul
     // Re-seed only when a different cue is opened.
   }, [cueId]);
 
-  const backdrops = useMemo(() => items.filter((m) => m.type === 'image' || m.type === 'video'), [items]);
+  const backdrops = useMemo(
+    () => items.filter((m) => m.type === 'image' || m.type === 'video' || m.type === 'web' || m.type === 'screen'),
+    [items]
+  );
   const videos = useMemo(() => items.filter((m) => m.type === 'video'), [items]);
   const tracks = useMemo(() => items.filter((m) => m.type === 'audio'), [items]);
 

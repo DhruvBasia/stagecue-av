@@ -146,7 +146,8 @@ const status: RemoteStatus = {
   musicPlaying: true,
   autoFollowEnabled: true,
   followCountdown: null,
-  projector: 'projector'
+  projector: 'projector',
+  paging: { kind: 'pdf', page: 3, pageCount: 34 }
 };
 
 afterEach(async () => {

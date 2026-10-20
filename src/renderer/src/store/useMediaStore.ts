@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import type { FolderScanResult, MediaItem, MediaType, PdfPageRef, ResolvedMediaFile } from '../types';
+import type {
+  CaptureSourceInfo,
+  FileMediaType,
+  FolderScanResult,
+  MediaItem,
+  MediaType,
+  PdfPageRef,
+  ResolvedMediaFile
+} from '../types';
 import { probeMedia } from '../services/mediaProbe';
 import { getRenderTarget, renderPdfPages } from '../services/pdfRenderer';
 import {
@@ -51,7 +59,13 @@ export interface MediaStoreState {
   clearNew: (id?: string) => void;
   importFiles: (files: ImportCandidate[]) => ImportOutcome;
   importResolved: (files: ResolvedMediaFile[]) => Promise<ImportOutcome>;
-  importFromDialog: (types: MediaType[]) => Promise<ImportOutcome>;
+  importFromDialog: (types: FileMediaType[]) => Promise<ImportOutcome>;
+  /** Adds a live web page (e.g. an online flipbook). Returns the item, or the existing one for the same address. */
+  addWebPage: (url: string, name: string, thumbnail: string | null) => MediaItem;
+  /** Adds a live window/screen capture. */
+  addCapture: (source: CaptureSourceInfo) => MediaItem;
+  /** Replaces a placeholder thumbnail with a real picture (e.g. the first live frame of a web page). */
+  setThumbnail: (id: string, thumbnailUrl: string) => void;
   importFolderFromDialog: () => Promise<FolderImportOutcome | null>;
   /** quiet: no success banner (used by background Drive syncs, which report on their own). */
   rescanFolder: (folderPath: string, options?: { quiet?: boolean }) => Promise<FolderImportOutcome | null>;
@@ -73,7 +87,7 @@ function platform(): string {
 }
 
 function countByType(items: MediaItem[]): string {
-  const counts: Record<MediaType, number> = { image: 0, video: 0, audio: 0 };
+  const counts: Record<MediaType, number> = { image: 0, video: 0, audio: 0, web: 0, screen: 0 };
   let pdfPages = 0;
   let slides = 0;
   for (const item of items) {
@@ -87,6 +101,8 @@ function countByType(items: MediaItem[]): string {
   if (pdfPages) parts.push(`${pdfPages} PDF page${pdfPages === 1 ? '' : 's'}`);
   if (counts.video) parts.push(`${counts.video} video${counts.video === 1 ? '' : 's'}`);
   if (counts.audio) parts.push(`${counts.audio} track${counts.audio === 1 ? '' : 's'}`);
+  if (counts.web) parts.push(`${counts.web} web page${counts.web === 1 ? '' : 's'}`);
+  if (counts.screen) parts.push(`${counts.screen} window${counts.screen === 1 ? '' : 's'}`);
   return parts.join(', ');
 }
 
@@ -331,6 +347,45 @@ export const useMediaStore = create<MediaStoreState>((set, get) => {
         added.forEach(probe);
       }
       return { added, duplicates, rejected };
+    },
+
+    addWebPage: (url, name, thumbnail) => {
+      const existing = get().items.find((i) => i.web?.url === url);
+      if (existing) return existing;
+      const item: MediaItem = {
+        id: createId('media'),
+        name: name.trim() || url,
+        filePath: url,
+        fileUrl: url,
+        type: 'web',
+        web: { url }
+      };
+      if (thumbnail) item.thumbnailUrl = thumbnail;
+      set((state) => ({ items: [...state.items, item] }));
+      useShowStore.getState().markDirty();
+      probe(item);
+      return item;
+    },
+
+    addCapture: (source) => {
+      const existing = get().items.find((i) => i.capture?.sourceId === source.id);
+      if (existing) return existing;
+      const item: MediaItem = {
+        id: createId('media'),
+        name: source.name,
+        filePath: source.name,
+        fileUrl: '',
+        type: 'screen',
+        capture: { sourceId: source.id, kind: source.kind },
+        thumbnailUrl: source.thumbnail
+      };
+      set((state) => ({ items: [...state.items, item] }));
+      useShowStore.getState().markDirty();
+      return item;
+    },
+
+    setThumbnail: (id, thumbnailUrl) => {
+      set((state) => ({ items: state.items.map((i) => (i.id === id ? { ...i, thumbnailUrl } : i)) }));
     },
 
     importResolved: async (files) => {

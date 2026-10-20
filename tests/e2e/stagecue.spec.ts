@@ -26,9 +26,12 @@ interface E2EHooks {
   media: StoreHook<{
     importFiles(files: ResolvedMediaFile[]): { added: MediaItem[] };
     rescanFolder(folderPath: string): Promise<{ added: MediaItem[]; skipped: number } | null>;
+    addWebPage(url: string, name: string, thumbnail: string | null): MediaItem;
     items: MediaItem[];
     folders: string[];
   }>;
+  web: StoreHook<{ frame: { mediaId: string; url: string; title: string } | null }>;
+  show: StoreHook<{ alerts: Array<{ title: string; message: string }> }>;
   stage: StoreHook<{
     addMediaAsCue(media: MediaItem): string;
     cues: CueItem[];
@@ -440,6 +443,59 @@ test('stage telemetry flows back to the operator', async () => {
 const liveCueId = (): Promise<string | null> =>
   operator.evaluate(() => window.__STAGECUE_TEST__?.stage.getState().program.liveCueId ?? null);
 
+const stageBackdropName = (): Promise<string | null> =>
+  operator.evaluate(() => window.__STAGECUE_TEST__?.stage.getState().telemetry?.currentBackdrop?.name ?? null);
+
+test('a PDF booklet turns its pages live from one cue: buttons, page number and the clicker', async () => {
+  const bookletCue = await liveCueId();
+  expect(await stageBackdropName()).toBe('01 Agenda · p1');
+  const controls = operator.getByTestId('monitor-program').getByTestId('page-controls');
+  await expect(controls).toHaveAttribute('data-kind', 'pdf');
+  await expect(controls.getByTestId('page-number')).toHaveValue('1');
+  await expect(operator.getByTestId('cue-booklet-badge').first()).toHaveText('PDF ⇆');
+
+  await controls.getByTestId('page-next').click();
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p2');
+  await expect(controls.getByTestId('page-number')).toHaveValue('2');
+  // Still the same cue: pages are turned inside it.
+  expect(await liveCueId()).toBe(bookletCue);
+  await expect(controls.getByTestId('page-next')).toBeDisabled();
+  await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-booklet-p2.png') });
+
+  await controls.getByTestId('page-prev').click();
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p1');
+
+  // Type a page number.
+  await controls.getByTestId('page-number').fill('2');
+  await controls.getByTestId('page-number').press('Enter');
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p2');
+  await controls.getByTestId('page-number').fill('1');
+  await controls.getByTestId('page-number').press('Enter');
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p1');
+
+  // The clicker turns pages, then moves on to the next cue after the last page.
+  const nextCue = await operator.evaluate(() => window.__STAGECUE_TEST__?.stage.getState().selectedCueId ?? null);
+  expect(nextCue).not.toBe(bookletCue);
+  // (Key presses are spaced out: faster than 150 ms is treated as a clicker double-fire.)
+  await operator.locator('body').click({ position: { x: 5, y: 600 } });
+  await operator.waitForTimeout(200);
+  await operator.keyboard.press('PageDown');
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p2');
+  expect(await liveCueId()).toBe(bookletCue);
+  await operator.waitForTimeout(250);
+  await operator.keyboard.press('PageUp');
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p1');
+  await operator.waitForTimeout(250);
+  await operator.keyboard.press(']');
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p2');
+  await operator.waitForTimeout(350);
+  await operator.keyboard.press('PageDown');
+  await expect.poll(liveCueId).toBe(nextCue);
+  await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-booklet.png') });
+  // Let the double-take guard expire before the next test takes a cue.
+  await operator.waitForTimeout(350);
+});
+
 test('auto-follow advances on its own, pauses while frozen, and obeys the ON/OFF switch', async () => {
   const ids = await operator.evaluate(() => {
     const hooks = window.__STAGECUE_TEST__;
@@ -608,6 +664,22 @@ test('stage team phones control the show over WebSockets, within the AV room’s
   expect((await phone.next('message')).message).toMatchObject({ role: 'av-room', text: 'Copy, rolling the anthem' });
   await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-crew.png') });
   await operator.keyboard.press('Escape');
+
+  // The stage team turns booklet pages from the phone (part of "GO / play cues").
+  const agenda = cues.find((c) => c.label === 'Agenda · p1');
+  if (!agenda) throw new Error('Agenda cue missing');
+  await operator.waitForTimeout(350);
+  phone.send({ type: 'action', action: 'take-cue', cueId: agenda.id, requestId: 'pg0' });
+  expect(await phone.next('ack')).toMatchObject({ requestId: 'pg0', ok: true });
+  let paging: unknown = null;
+  while (!paging) paging = ((await phone.next('status')).status as { paging: unknown }).paging;
+  expect(paging).toEqual({ kind: 'pdf', page: 1, pageCount: 2 });
+  phone.send({ type: 'action', action: 'page-next', requestId: 'pg1' });
+  expect(await phone.next('ack')).toMatchObject({ requestId: 'pg1', ok: true, message: 'Page 2 / 2' });
+  await expect.poll(stageBackdropName).toBe('01 Agenda · p2');
+  await operator.waitForTimeout(200);
+  phone.send({ type: 'action', action: 'page-next', requestId: 'pg2' });
+  expect(await phone.next('ack')).toMatchObject({ requestId: 'pg2', ok: false, message: 'Already on the last page' });
 
   // The AV room's own phone has full control.
   const avPhone = await crewClient(port, info.operatorToken);
@@ -894,7 +966,7 @@ test('PowerPoint decks import as one backdrop per slide', async () => {
   }, deckFolder);
   expect(outcome?.map((o) => o.name)).toEqual(['Award Night · slide 1', 'Award Night · slide 2', 'Award Night · slide 3']);
   expect(outcome?.every((o) => o.deck?.endsWith('Award Night.pptx'))).toBe(true);
-  await operator.getByRole('tab', { name: /Backdrops/ }).click();
+  await operator.getByTestId('bin-image').click();
   await expect(operator.getByTestId('pdf-badge').filter({ hasText: 'SLIDE 2/3' })).toHaveCount(1);
 
   const slideId = outcome?.[1].id ?? '';
@@ -912,6 +984,12 @@ test('PowerPoint decks import as one backdrop per slide', async () => {
   await expect
     .poll(() => slideImg.evaluate((img) => (img as HTMLImageElement).naturalWidth).catch(() => 0), { timeout: 15_000 })
     .toBeGreaterThanOrEqual(1920);
+  // Slides are turned live like booklet pages.
+  const controls = operator.getByTestId('monitor-program').getByTestId('page-controls');
+  await expect(controls).toContainText('Slide');
+  await controls.getByTestId('page-next').click();
+  await expect.poll(stageBackdropName).toBe('Award Night · slide 3');
+  expect(await liveCueId()).toBe(cueId);
   await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-slides.png') });
 });
 
@@ -948,4 +1026,169 @@ test('audio output devices are listed and selectable', async () => {
   await expect.poll(() => operator.evaluate(() => window.__STAGECUE_TEST__?.audio.getState().currentSinkId ?? '')).toBe(target);
   await operator.evaluate(() => window.__STAGECUE_TEST__?.audio.getState().setOutputDevice(''));
   await expect.poll(() => operator.evaluate(() => window.__STAGECUE_TEST__?.audio.getState().currentSinkId ?? 'x')).toBe('');
+});
+
+/** A tiny flipbook: arrow keys and clicks turn pages; the title reports the last input and whether it was real (trusted). */
+const FLIPBOOK_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Test Flipbook</title>
+<style>html,body{margin:0;height:100%;background:#0b1d3a;color:#fff;font:bold 30vh system-ui;display:flex;align-items:center;justify-content:center}</style></head>
+<body><div id="n">1</div><script>
+var page = Number(new URLSearchParams(location.search).get('page') || 1), last = 'none';
+function show() { document.getElementById('n').textContent = page; history.replaceState(null, '', location.pathname + '?page=' + page); document.title = 'Test Flipbook p' + page + ' ' + last; }
+addEventListener('keydown', function (e) { last = 'key:' + e.key + ':' + e.isTrusted; if (e.key === 'ArrowRight') page++; if (e.key === 'ArrowLeft' && page > 1) page--; show(); });
+addEventListener('click', function (e) { last = 'click:' + e.isTrusted; if (e.clientX > innerWidth / 2) page++; else if (page > 1) page--; show(); });
+show();
+</script></body></html>`;
+
+interface WebFrameLike {
+  mediaId: string;
+  url: string;
+  title: string;
+}
+
+const webFrame = (): Promise<WebFrameLike | null> =>
+  operator.evaluate(() => {
+    const frame = window.__STAGECUE_TEST__?.web.getState().frame;
+    return frame ? { mediaId: frame.mediaId, url: frame.url, title: frame.title } : null;
+  });
+
+test('a web flipbook plays on stage and is turned from the operator window (buttons, clicker, clicks, freeze)', async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(FLIPBOOK_HTML);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  const url = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}/magazine`;
+  try {
+    // Library → Live → Web page.
+    await operator.getByTestId('bin-live').click();
+    await operator.getByTestId('add-web-page').click();
+    await operator.getByTestId('web-url').fill(url);
+    await operator.getByTestId('web-add').click();
+    await expect(operator.getByTestId('web-page-modal')).toHaveCount(0, { timeout: 20_000 });
+    const card = operator.getByTestId('media-card').filter({ has: operator.getByTestId('live-badge') });
+    await expect(card.first()).toContainText('Test Flipbook');
+    await expect(card.first().getByTestId('live-badge')).toHaveText('WEB');
+
+    const ids = await operator.evaluate((address) => {
+      const hooks = window.__STAGECUE_TEST__;
+      const media = hooks?.media.getState().items.find((i) => i.type === 'web' && i.filePath === address);
+      if (!hooks || !media) throw new Error('web page missing');
+      const cue = hooks.stage.getState().addMediaAsCue(media);
+      return { cue, media: media.id };
+    }, url);
+    await operator.waitForTimeout(350);
+    await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), ids.cue);
+    await expect.poll(liveCueId).toBe(ids.cue);
+
+    // The page runs inside the stage window…
+    await expect(stage.locator(`[data-testid="backdrop-layer"] [data-active="true"] webview[data-media-id="${ids.media}"]`)).toBeAttached({
+      timeout: 15_000
+    });
+    // …and the operator sees it live and controls it from the Program monitor.
+    await expect.poll(async () => (await webFrame())?.title ?? '', { timeout: 15_000 }).toContain('Test Flipbook p1');
+    const program = operator.getByTestId('monitor-program');
+    await expect(program.getByTestId('web-remote-image')).toBeVisible();
+    await expect(program.getByTestId('page-controls')).toHaveAttribute('data-kind', 'web');
+
+    await program.getByTestId('page-next').click();
+    await expect.poll(async () => (await webFrame())?.title ?? '').toContain('p2 key:ArrowRight:true');
+    expect((await webFrame())?.url).toContain('?page=2');
+    await expect(program.getByTestId('page-label')).toContainText('Page 2');
+
+    // The clicker turns the flipbook too.
+    await operator.locator('body').click({ position: { x: 5, y: 600 } });
+    await operator.keyboard.press('PageDown');
+    await expect.poll(async () => (await webFrame())?.title ?? '').toContain('p3 key:ArrowRight:true');
+    await operator.waitForTimeout(250); // faster key presses count as a clicker double-fire
+    await operator.keyboard.press('PageUp');
+    await expect.poll(async () => (await webFrame())?.title ?? '').toContain('p2 key:ArrowLeft:true');
+
+    // Clicking the live picture clicks the page on the projector (right half = next page).
+    const picture = program.getByTestId('web-remote-image');
+    const box = await picture.boundingBox();
+    if (!box) throw new Error('no live picture');
+    await operator.mouse.click(box.x + box.width * 0.8, box.y + box.height * 0.5);
+    await expect.poll(async () => (await webFrame())?.title ?? '').toContain('p3 click:true');
+    await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-web-flipbook.png') });
+    await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-web-flipbook.png') });
+
+    // Freeze holds a still of the page while the operator keeps flipping underneath.
+    await operator.keyboard.press('F8');
+    await expect(stage.getByTestId('freeze-layer')).toHaveAttribute('data-active', 'true');
+    await expect
+      .poll(() => operator.evaluate(() => window.__STAGECUE_TEST__?.stage.getState().lastFreezeAck?.source ?? null))
+      .toBe('backdrop');
+    await program.getByTestId('page-next').click();
+    await expect.poll(async () => (await webFrame())?.title ?? '').toContain('p4');
+    await expect(stage.getByTestId('freeze-layer')).toHaveAttribute('data-active', 'true');
+    await operator.keyboard.press('F8');
+    await expect(stage.getByTestId('freeze-layer')).toHaveAttribute('data-active', 'false');
+
+    // Home goes back to the cue's start address.
+    await program.getByRole('button', { name: 'Start again' }).click();
+    await expect.poll(async () => (await webFrame())?.title ?? '').toContain('Test Flipbook p1 none');
+  } finally {
+    server.close();
+  }
+});
+
+test('a window or screen can be shown live on stage', async () => {
+  await operator.getByTestId('bin-live').click();
+  await operator.getByTestId('add-capture').click();
+  await expect(operator.getByTestId('capture-source').first()).toBeVisible({ timeout: 15_000 });
+  await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-capture-picker.png') });
+  // A whole screen always exists; pick it.
+  await operator.getByTestId('capture-modal').getByText('Whole screens').waitFor();
+  const screenSource = operator.getByTestId('capture-source').filter({ hasText: /screen/i }).first();
+  await screenSource.click();
+  await expect(operator.getByTestId('capture-modal')).toHaveCount(0);
+
+  const ids = await operator.evaluate(() => {
+    const hooks = window.__STAGECUE_TEST__;
+    const media = hooks?.media.getState().items.find((i) => i.type === 'screen');
+    if (!hooks || !media) throw new Error('capture missing');
+    return { cue: hooks.stage.getState().addMediaAsCue(media), media: media.id };
+  });
+  await operator.waitForTimeout(350);
+  await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), ids.cue);
+  const video = stage.locator(`[data-testid="backdrop-layer"] [data-active="true"] video[data-media-id="${ids.media}"]`);
+  await expect.poll(() => video.evaluate((v) => (v as HTMLVideoElement).videoWidth).catch(() => 0), { timeout: 15_000 }).toBeGreaterThan(0);
+  await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-screen-capture.png') });
+  // Nothing went wrong on the way (e.g. a refused capture permission).
+  const alerts = await operator.evaluate(() => window.__STAGECUE_TEST__?.show.getState().alerts.map((a) => a.title) ?? []);
+  expect(alerts.filter((t) => t.startsWith('Cannot play'))).toEqual([]);
+  // Freezing a live window works like any video.
+  await operator.keyboard.press('F8');
+  await expect
+    .poll(() => operator.evaluate(() => window.__STAGECUE_TEST__?.stage.getState().lastFreezeAck?.source ?? null))
+    .toBe('backdrop');
+  await operator.keyboard.press('F8');
+  await expect(stage.getByTestId('freeze-layer')).toHaveAttribute('data-active', 'false');
+});
+
+// Opt-in (needs internet): STAGECUE_E2E_REAL_WEB=1 opens the real annual magazine and turns a page.
+test('the real Netted Bytes flipbook turns its pages from StageCue', async () => {
+  test.skip(process.env.STAGECUE_E2E_REAL_WEB !== '1', 'set STAGECUE_E2E_REAL_WEB=1 to use the real magazine');
+  test.setTimeout(120_000);
+  const url = 'https://fests.ggsipuedc.workers.dev/netted-bytes';
+  const ids = await operator.evaluate((address) => {
+    const hooks = window.__STAGECUE_TEST__;
+    if (!hooks) throw new Error('E2E hooks are not exposed');
+    const media = hooks.media.getState().addWebPage(address, 'Netted Bytes', null);
+    return { cue: hooks.stage.getState().addMediaAsCue(media), media: media.id };
+  }, url);
+  await operator.waitForTimeout(350);
+  await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), ids.cue);
+  await expect.poll(async () => (await webFrame())?.title ?? '', { timeout: 45_000 }).toContain('Netted Bytes');
+  await operator.waitForTimeout(3000);
+  const program = operator.getByTestId('monitor-program');
+  await program.getByTestId('page-next').click();
+  await expect.poll(async () => (await webFrame())?.url ?? '', { timeout: 20_000 }).toMatch(/[?&]page=2/);
+  await operator.waitForTimeout(1500);
+  await program.getByTestId('page-next').click();
+  await expect.poll(async () => (await webFrame())?.url ?? '', { timeout: 20_000 }).toMatch(/[?&]page=(3|4)/);
+  await operator.waitForTimeout(1500);
+  await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-real-magazine.png') });
+  await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-real-magazine.png') });
 });

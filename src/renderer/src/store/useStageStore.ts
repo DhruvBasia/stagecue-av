@@ -16,6 +16,7 @@ import {
   assignMediaToCue,
   buildAdHocPayload,
   buildCuePayload,
+  buildPageTurnPayload,
   createCue,
   createInitialProgram,
   detachMediaFromCues,
@@ -42,6 +43,7 @@ import {
   startFollow,
   type PendingFollow
 } from '../services/followEngine';
+import { adjacentPage, pageNumbered } from '../services/paging';
 import { updateRenderTarget } from '../services/pdfRenderer';
 import { createId } from '../services/utils';
 import { useAudioStore } from './useAudioStore';
@@ -89,6 +91,10 @@ export interface StageStoreState {
   takeSelected: () => boolean;
   takeCue: (id: string) => boolean;
   takeMedia: (media: MediaItem) => boolean;
+  /** Next/previous page of the live PDF booklet or web page (the cue stays live). */
+  turnPage: (direction: 1 | -1) => PageTurnResult;
+  /** Jumps to a page number of the live PDF booklet. */
+  goToPage: (page: number) => PageTurnResult;
   freeze: () => void;
   unfreeze: () => void;
   toggleFreeze: () => void;
@@ -108,6 +114,13 @@ export interface StageStoreState {
 }
 
 const BLACKOUT_FADE_MS = 400;
+
+export interface PageTurnResult {
+  ok: boolean;
+  message: string;
+  /** The booklet is already on its first/last page (clickers then move on through the cue list). */
+  atEnd: boolean;
+}
 
 export const useStageStore = create<StageStoreState>((set, get) => {
   let freezeAckTimer: ReturnType<typeof setTimeout> | null = null;
@@ -134,6 +147,25 @@ export const useStageStore = create<StageStoreState>((set, get) => {
   };
 
   const guardTake = (): boolean => Date.now() - get().lastTakeAt >= TAKE_GUARD_MS;
+
+  /** Shows `page` (a page of the live booklet) with a quick dissolve, keeping the cue live. */
+  const showPage = (page: MediaItem): PageTurnResult => {
+    const { program, telemetry } = get();
+    const foregroundTime =
+      program.foreground && telemetry?.currentForeground?.id === program.foreground.id ? telemetry.foregroundCurrentTime : null;
+    const payload = buildPageTurnPayload(program, page, program.takeId + 1, foregroundTime);
+    dispatch({ type: 'TAKE', payload });
+    window.api.send('stage:take-cue', payload);
+    // The operator is driving the booklet by hand: an automatic follow must not jump away.
+    get().cancelFollow();
+    const total = page.pdf?.pageCount;
+    return { ok: true, message: total ? `Page ${page.pdf?.page} / ${total}` : `Page ${page.pdf?.page ?? ''}`, atEnd: false };
+  };
+
+  const liveBackdropItem = (): MediaItem | null => {
+    const backdrop = get().program.backdrop;
+    return backdrop ? lookup(backdrop.id) : null;
+  };
 
   /* ------------------------------ Auto-follow ---------------------------- */
 
@@ -303,8 +335,9 @@ export const useStageStore = create<StageStoreState>((set, get) => {
       useMediaStore.getState().clearNew(media.id);
       const base = createCue({ id: 'draft' }, 1);
       const withMedia = assignMediaToCue(base, media);
+      const isFile = media.type !== 'web' && media.type !== 'screen';
       return get().addCue({
-        label: media.name.replace(/\.[^.]+$/, ''),
+        label: isFile ? media.name.replace(/\.[^.]+$/, '') : media.name,
         backdropMediaId: withMedia.backdropMediaId,
         foregroundMediaId: withMedia.foregroundMediaId,
         audioMediaId: withMedia.audioMediaId,
@@ -386,6 +419,29 @@ export const useStageStore = create<StageStoreState>((set, get) => {
       sendTake(payload);
       scheduleFollow(null, payload);
       return true;
+    },
+
+    turnPage: (direction) => {
+      const current = liveBackdropItem();
+      if (!current) return { ok: false, message: 'Nothing with pages is live', atEnd: false };
+      if (current.type === 'web') {
+        window.api.send('web:input', { type: 'key', key: direction === 1 ? 'ArrowRight' : 'ArrowLeft' });
+        return { ok: true, message: direction === 1 ? 'Next page' : 'Previous page', atEnd: false };
+      }
+      if (!current.pdf) return { ok: false, message: 'Nothing with pages is live', atEnd: false };
+      const target = adjacentPage(useMediaStore.getState().items, current, direction, window.api.platform);
+      if (!target) {
+        return { ok: false, message: direction === 1 ? 'Already on the last page' : 'Already on the first page', atEnd: true };
+      }
+      return showPage(target);
+    },
+
+    goToPage: (page) => {
+      const current = liveBackdropItem();
+      if (!current?.pdf) return { ok: false, message: 'No PDF is live', atEnd: false };
+      const target = pageNumbered(useMediaStore.getState().items, current, page, window.api.platform);
+      if (!target || target.id === current.id) return { ok: false, message: `Already on page ${current.pdf.page}`, atEnd: false };
+      return showPage(target);
     },
 
     freeze: () => {

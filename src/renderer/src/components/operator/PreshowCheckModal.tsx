@@ -55,6 +55,20 @@ export async function runCheckNow(onProgress?: (done: number, total: number, lab
         const result = await probeMedia(item);
         return { ok: !result.probeError, problem: result.probeError, duration: result.duration, dimensions: result.dimensions };
       },
+      checkLive: async (item) => {
+        try {
+          if (item.type === 'web') {
+            const result = await window.api.invoke('web:inspect', { url: item.web?.url ?? item.fileUrl, snapshot: false });
+            return { ok: result.ok, problem: result.error ?? undefined };
+          }
+          const capture = item.capture;
+          if (!capture) return { ok: false, problem: 'No window selected' };
+          const id = await window.api.invoke('capture:resolve', { sourceId: capture.sourceId, name: item.name, kind: capture.kind });
+          return id ? { ok: true } : { ok: false, problem: `“${item.name}” is not open on this laptop. Open it before its cue.` };
+        } catch (error) {
+          return { ok: false, problem: error instanceof Error ? error.message : String(error) };
+        }
+      },
       onProgress
     }
   );

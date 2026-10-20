@@ -1,8 +1,10 @@
 import {
+  AppWindow,
   ChevronDown,
   ChevronUp,
   Copy,
   Film,
+  Globe,
   ImageIcon,
   ListPlus,
   Music,
@@ -74,7 +76,15 @@ function CueThumb({
         <img src={main.thumbnailUrl} alt="" draggable={false} className="h-full w-full object-contain" />
       ) : main ? (
         <div className="flex h-full w-full items-center justify-center text-av-dim">
-          {main.type === 'video' ? <Film size={16} /> : <ImageIcon size={16} />}
+          {main.type === 'video' ? (
+            <Film size={16} />
+          ) : main.type === 'web' ? (
+            <Globe size={16} />
+          ) : main.type === 'screen' ? (
+            <AppWindow size={16} />
+          ) : (
+            <ImageIcon size={16} />
+          )}
         </div>
       ) : audio ? (
         <div className="flex h-full w-full items-center justify-center bg-av-green/10 text-av-green">
@@ -102,6 +112,19 @@ function CueThumb({
       {audio && main ? (
         <span className="absolute left-0.5 bottom-0.5 rounded-sm bg-av-green/90 p-px text-av-bg">
           <Music size={9} />
+        </span>
+      ) : null}
+      {backdrop && (backdrop.pdf || backdrop.type === 'web' || backdrop.type === 'screen') ? (
+        <span
+          className="absolute right-0.5 top-0.5 rounded-sm bg-black/80 px-0.5 font-mono text-[8px] font-bold leading-tight text-av-amber"
+          title={
+            backdrop.type === 'screen'
+              ? 'Live window'
+              : 'Booklet: turn its pages live with ◀ ▶, [ ], the clicker or the crew phones'
+          }
+          data-testid="cue-booklet-badge"
+        >
+          {backdrop.type === 'web' ? 'WEB ⇆' : backdrop.type === 'screen' ? 'LIVE' : backdrop.pdf?.originalPath ? 'SLIDES ⇆' : 'PDF ⇆'}
         </span>
       ) : null}
     </div>

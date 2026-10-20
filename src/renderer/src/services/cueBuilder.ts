@@ -1,6 +1,6 @@
 import type { CueItem, MediaItem, TransitionType } from '../types';
 import { createCue, DEFAULT_TRANSITION_MS } from './cueManager';
-import { isPathInsideFolder, mediaPathKey, sourcePathOf } from './utils';
+import { baseName, isPathInsideFolder, mediaPathKey, sourcePathOf } from './utils';
 
 /* =========================================================================
  * "Cues from folder": turns an event folder into a running order.
@@ -8,6 +8,7 @@ import { isPathInsideFolder, mediaPathKey, sourcePathOf } from './utils';
  *   01 Welcome.png      → backdrop cue  "Welcome"
  *   02 Kulgeet.mp4      → video cue     "Kulgeet" (plays over the current backdrop)
  *   03 Brochure.pdf     → one backdrop cue per page "Brochure · p1", "· p2", …
+ *                         (or one "Brochure" booklet cue whose pages are turned live)
  *   Walk-in.mp3         → music cue     "♪ Walk-in"
  *
  * Order follows the file names naturally (2 before 10), files before the
@@ -27,6 +28,8 @@ export interface BuildCuesOptions {
   slideshowSeconds: number;
   /** The last cue jumps back to the first one (sponsor loops). */
   slideshowLoop: boolean;
+  /** One cue per PDF / slide deck (its pages are turned live) instead of one cue per page. */
+  pdfAsBooklet: boolean;
 }
 
 export const DEFAULT_BUILD_OPTIONS: BuildCuesOptions = {
@@ -38,7 +41,8 @@ export const DEFAULT_BUILD_OPTIONS: BuildCuesOptions = {
   transitionDurationMs: DEFAULT_TRANSITION_MS,
   slideshow: false,
   slideshowSeconds: 8,
-  slideshowLoop: true
+  slideshowLoop: true,
+  pdfAsBooklet: false
 };
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -99,6 +103,7 @@ export function buildCuesFromMedia(
 ): CueItem[] {
   const used = options.skipUsed ? usedMediaIds(existingCues) : new Set<string>();
   const cues: CueItem[] = [];
+  const booklets = new Set<string>();
   for (const item of items) {
     if (item.missing || used.has(item.id)) continue;
     const base = {
@@ -107,7 +112,23 @@ export function buildCuesFromMedia(
       transitionDurationMs: options.transitionDurationMs
     };
     const order = cues.length + 1;
-    if (item.type === 'image' && options.includeImages) {
+    if (item.type === 'image' && options.includeImages && item.pdf && options.pdfAsBooklet) {
+      // Items arrive in page order, so the first page seen opens the booklet.
+      const document = sourcePathOf(item);
+      if (booklets.has(document)) continue;
+      booklets.add(document);
+      cues.push(
+        createCue(
+          {
+            ...base,
+            label: cleanCueLabel(baseName(document)),
+            backdropMediaId: item.id,
+            notes: `${item.pdf.originalPath ? 'Slides' : 'Booklet'}: turn pages live with ◀ ▶, [ ], the clicker or the crew phones.`
+          },
+          order
+        )
+      );
+    } else if (item.type === 'image' && options.includeImages) {
       cues.push(createCue({ ...base, label: cleanCueLabel(item.name), backdropMediaId: item.id }, order));
     } else if (item.type === 'video' && options.includeVideos) {
       cues.push(createCue({ ...base, label: cleanCueLabel(item.name), foregroundMediaId: item.id }, order));

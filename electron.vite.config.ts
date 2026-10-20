@@ -16,6 +16,8 @@ const PRODUCTION_CSP = [
   "media-src 'self' blob: local-media:",
   "font-src 'self' data:",
   "connect-src 'self' local-media:",
+  // Web-page cues: the stage embeds http(s) pages in a sandboxed <webview> (main process enforces the rest).
+  'frame-src http: https:',
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'"

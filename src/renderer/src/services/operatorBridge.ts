@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type {
+  LivePaging,
   MediaItem,
   MenuCommand,
   RemoteAck,
@@ -17,7 +18,9 @@ import { useMediaStore } from '../store/useMediaStore';
 import { usePrefsStore } from '../store/usePrefsStore';
 import { useShowStore } from '../store/useShowStore';
 import { useStageStore } from '../store/useStageStore';
+import { useWebStore } from '../store/useWebStore';
 import { sortCues } from './cueManager';
+import { livePaging } from './paging';
 import { describeFollow, followSecondsLeft } from './followEngine';
 import { HotkeyManager, type HotkeyAction } from './hotkeyManager';
 import { buildRunSheetHtml } from './runSheet';
@@ -52,6 +55,17 @@ export function currentShowSnapshot(): ShowFile {
 }
 
 /* ------------------------------ Shared actions --------------------------- */
+
+/** Clickers can double-fire: key presses turning pages faster than this are ignored (buttons are not limited). */
+export const PAGE_KEY_GUARD_MS = 150;
+let lastPageKeyAt = 0;
+
+function pageKeyAllowed(): boolean {
+  const now = Date.now();
+  if (now - lastPageKeyAt < PAGE_KEY_GUARD_MS) return false;
+  lastPageKeyAt = now;
+  return true;
+}
 
 /** One place for keyboard, clicker and phone-remote actions. */
 export function runOperatorAction(action: HotkeyAction | Exclude<RemoteActionName, 'take-cue'>): void {
@@ -93,11 +107,39 @@ export function runOperatorAction(action: HotkeyAction | Exclude<RemoteActionNam
       else audio.playMusic();
       break;
     }
+    case 'page-next':
+    case 'page-prev': {
+      if (!pageKeyAllowed()) break;
+      const result = stage.turnPage(action === 'page-next' ? 1 : -1);
+      if (!result.ok && result.atEnd) useShowStore.getState().pushAlert('info', result.message, '', false);
+      break;
+    }
+    case 'clicker-next':
+    case 'clicker-prev': {
+      const forward = action === 'clicker-next';
+      // A presenter clicking through a booklet: pages first, then on through the cue list.
+      if (usePrefsStore.getState().clickerTurnsPages && currentPaging() !== null) {
+        if (!pageKeyAllowed()) break;
+        const result = stage.turnPage(forward ? 1 : -1);
+        if (result.ok || !result.atEnd) break;
+      }
+      if (forward) stage.takeSelected();
+      else stage.selectPrev();
+      break;
+    }
     default: {
       const exhaustive: never = action;
       throw new Error(`Unknown action ${String(exhaustive)}`);
     }
   }
+}
+
+/** The live booklet (PDF/deck page or web page), if any. */
+export function currentPaging(): LivePaging | null {
+  const backdrop = useStageStore.getState().program.backdrop;
+  const item = backdrop ? useMediaStore.getState().getById(backdrop.id) : null;
+  const frame = useWebStore.getState().frame;
+  return livePaging(item, frame && item && frame.mediaId === item.id ? frame.url : null);
 }
 
 /** Runs a command from a crew phone and describes the result for its acknowledgement. */
@@ -177,17 +219,39 @@ export function runRemoteAction(event: RemoteActionEvent): RemoteAck {
       result = done(true, next ? `Next: ${next.order}. ${next.label}` : 'No cue highlighted');
       break;
     }
+    case 'page-next':
+    case 'page-prev': {
+      const turned = stage.turnPage(event.action === 'page-next' ? 1 : -1);
+      result = done(turned.ok, turned.message);
+      break;
+    }
     default: {
       const exhaustive: never = event.action;
       result = done(false, `Unknown command ${String(exhaustive)}`);
     }
   }
 
-  // The AV room always sees what the stage team did.
-  if (event.role === 'stage' && result.ok && event.action !== 'next-cue' && event.action !== 'prev-cue') {
+  // The AV room always sees what the stage team did (page turns are visible on the program monitor).
+  const quiet = event.action === 'next-cue' || event.action === 'prev-cue' || event.action === 'page-next' || event.action === 'page-prev';
+  if (event.role === 'stage' && result.ok && !quiet) {
     useShowStore.getState().pushAlert('info', `Stage team · ${event.clientName}`, result.message, false);
   }
   return result;
+}
+
+function backdropKindLabel(item: MediaItem): string {
+  if (item.pdf?.originalPath) return 'Slides';
+  if (item.pdf) return `PDF · page ${item.pdf.page}/${item.pdf.pageCount}`;
+  switch (item.type) {
+    case 'video':
+      return 'Moving backdrop';
+    case 'web':
+      return 'Web page';
+    case 'screen':
+      return 'Live window';
+    default:
+      return 'Poster';
+  }
 }
 
 /** Cue list for phones/tablets (with the library's small JPEG thumbnails). */
@@ -202,7 +266,7 @@ export function buildRemoteCues(): RemoteCue[] {
     const music = cue.audioMediaId ? items.get(cue.audioMediaId) : undefined;
     const parts: string[] = [];
     if (video) parts.push(`Video${video.duration ? ` ${formatTime(video.duration)}` : ''}`);
-    if (backdrop) parts.push(backdrop.pdf?.originalPath ? 'Slide' : backdrop.type === 'video' ? 'Moving backdrop' : 'Poster');
+    if (backdrop) parts.push(backdropKindLabel(backdrop));
     if (music) parts.push(`♪ ${music.name.replace(/\.[^.]+$/, '')}`);
     const kinds = [backdrop ? 'backdrop' : null, video ? 'video' : null, music ? 'music' : null].filter(Boolean);
     return {
@@ -243,7 +307,8 @@ export function buildRemoteStatus(now: number = Date.now()): RemoteStatus {
     musicPlaying,
     autoFollowEnabled: stage.autoFollowEnabled,
     followCountdown: followSecondsLeft(stage.pendingFollow, now),
-    projector: stage.displayStatus ? stage.displayStatus.mode : null
+    projector: stage.displayStatus ? stage.displayStatus.mode : null,
+    paging: currentPaging()
   };
 }
 
@@ -344,17 +409,26 @@ async function restorePdfPages(items: MediaItem[], baseDir: string | null): Prom
 
 /** Loads a parsed show. The live stage output is not touched. */
 export async function applyShow(show: ShowFile, filePath: string | null, baseDir: string | null): Promise<void> {
-  const resolved = await window.api.invoke(
+  // Web pages and window captures are not files; everything else is looked up on disk.
+  const fileRefs = show.media.filter((m) => m.type !== 'web' && m.type !== 'screen');
+  const resolvedFiles = await window.api.invoke(
     'media:read-metadata',
-    show.media.map((m) => ({
+    fileRefs.map((m) => ({
       filePath: m.filePath,
       relativePath: m.relativePath,
       baseDir: baseDir ?? undefined
     }))
   );
+  const resolvedById = new Map(fileRefs.map((m, index) => [m.id, resolvedFiles[index]] as const));
 
-  const items: MediaItem[] = show.media.map((ref, index) => {
-    const file = resolved[index];
+  const items: MediaItem[] = show.media.map((ref) => {
+    if (ref.web) {
+      return { id: ref.id, name: ref.name, type: 'web', filePath: ref.web.url, fileUrl: ref.web.url, web: { ...ref.web } };
+    }
+    if (ref.capture) {
+      return { id: ref.id, name: ref.name, type: 'screen', filePath: ref.filePath, fileUrl: '', capture: { ...ref.capture } };
+    }
+    const file = resolvedById.get(ref.id);
     const exists = Boolean(file && file.exists);
     const item: MediaItem = {
       id: ref.id,
@@ -506,6 +580,12 @@ export function useOperatorBridge(): void {
         }
       }),
       api.on('drive:progress', (progress) => useDriveStore.getState().setProgress(progress)),
+      api.on('web:frame', (frame) => {
+        const before = useWebStore.getState().frame?.page ?? null;
+        useWebStore.getState().handleFrame(frame);
+        // Phones show the flipbook's page number.
+        if (frame.page !== before) queueRemoteStatus();
+      }),
       api.on('remote:message', (message) => {
         useCrewStore.getState().addMessage(message);
         if (message.role !== 'av-room') {
@@ -590,7 +670,11 @@ export function useOperatorBridge(): void {
       'next-cue',
       'prev-cue',
       'toggle-video',
-      'toggle-follow'
+      'toggle-follow',
+      'page-next',
+      'page-prev',
+      'clicker-next',
+      'clicker-prev'
     ];
     const hotkeys = new HotkeyManager(
       window,

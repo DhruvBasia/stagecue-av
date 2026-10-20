@@ -19,7 +19,7 @@ import {
   type InvokeContracts,
   type MediaDialogOptions,
   type MediaPathRequest,
-  type MediaType,
+  type FileMediaType,
   type ReceivePayloads,
   type CrewMessageRequest,
   type DriveInspectRequest,
@@ -46,6 +46,14 @@ import { convertPresentation, isPresentationPath } from './presentationConverter
 import { normalizeInternet, normalizePermissions, type RemoteServer } from './remoteServer';
 import { exportRunSheet, isRunSheetRequest } from './runSheetExporter';
 import { isMediaPathAllowed, MEDIA_EXTENSIONS, resolveMediaFile } from './protocolHandler';
+import {
+  inspectWebPage,
+  isCaptureResolveRequest,
+  listCaptureSources,
+  parseWebInput,
+  resolveCaptureSource,
+  type WebStageController
+} from './webStage';
 
 export interface WindowRegistry {
   getOperatorWindow(): BrowserWindow | null;
@@ -66,6 +74,8 @@ export interface IpcHandlerHooks {
   documentsDir: string;
   /** Overrides for Google endpoints (automated tests only). */
   driveEndpoints: { apiBase?: string; pageBase?: string; downloadBase?: string };
+  /** Live web pages on stage (flipbooks): operator picture + input forwarding. */
+  web: WebStageController;
 }
 
 const MAX_SHOW_FILE_BYTES = 20 * 1024 * 1024;
@@ -96,14 +106,14 @@ function stripDot(ext: string): string {
   return ext.startsWith('.') ? ext.slice(1) : ext;
 }
 
-const TYPE_LABELS: Record<MediaType, string> = {
+const TYPE_LABELS: Record<FileMediaType, string> = {
   image: 'Backdrops & Posters',
   video: 'Videos',
   audio: 'Background Tracks'
 };
 
-export function buildMediaFilters(types: MediaType[]): FileFilter[] {
-  const selected: MediaType[] = types.length > 0 ? types : ['image', 'video', 'audio'];
+export function buildMediaFilters(types: FileMediaType[]): FileFilter[] {
+  const selected: FileMediaType[] = types.length > 0 ? types : ['image', 'video', 'audio'];
   const all = selected.flatMap((t) => MEDIA_EXTENSIONS[t].map(stripDot));
   const filters: FileFilter[] = [{ name: 'All supported media', extensions: all }];
   for (const type of selected) {
@@ -246,6 +256,38 @@ export function registerIpcHandlers(
       to: typeof request.to === 'string' ? request.to : null
     });
     if (sent) sendToWindow(registry.getOperatorWindow(), 'remote:message', sent);
+  });
+
+  /* ------------------------ Web pages & screen capture -------------------- */
+  listen('stage:web-live', (event, payload) => {
+    if (!isSender(event, registry.getStageWindow())) return;
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    hooks.web.setLive({
+      mediaId: typeof p.mediaId === 'string' ? p.mediaId : null,
+      takeId: typeof p.takeId === 'number' ? p.takeId : 0,
+      webContentsId: typeof p.webContentsId === 'number' && Number.isInteger(p.webContentsId) ? p.webContentsId : null,
+      homeUrl: typeof p.homeUrl === 'string' ? p.homeUrl : null
+    });
+  });
+
+  listen('web:input', (event, payload) => {
+    if (!isSender(event, registry.getOperatorWindow())) return;
+    const input = parseWebInput(payload);
+    if (input) hooks.web.handleInput(input);
+  });
+
+  handle('stage:capture-web', true, () => hooks.web.captureFull());
+
+  handle('web:inspect', false, async (_event, request) => {
+    const r = (typeof request === 'object' && request !== null ? request : {}) as Record<string, unknown>;
+    return inspectWebPage({ url: typeof r.url === 'string' ? r.url : '', snapshot: r.snapshot === true });
+  });
+
+  handle('capture:list-sources', false, () => listCaptureSources());
+
+  handle('capture:resolve', true, async (_event, request) => {
+    if (!isCaptureResolveRequest(request)) throw new Error('Invalid capture request');
+    return resolveCaptureSource(request);
   });
 
   /* ---------------------------- Remote & print ---------------------------- */
@@ -481,7 +523,8 @@ export function registerIpcHandlers(
         savedAt,
         media: request.show.media.map((m) => ({
           ...m,
-          relativePath: path.relative(dir, m.filePath),
+          // Web pages and window captures are not files: nothing to resolve relative to the show.
+          ...(m.type === 'web' || m.type === 'screen' ? {} : { relativePath: path.relative(dir, m.filePath) }),
           ...(m.pdf
             ? {
                 pdf: {

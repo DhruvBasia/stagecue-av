@@ -43,6 +43,8 @@ export interface PreshowDeps {
   findMissingFiles: (items: MediaItem[]) => Promise<Set<string>>;
   /** Decodes one file the same way the stage will. */
   probe: (item: MediaItem) => Promise<MediaProbeOutcome>;
+  /** Web pages: is the address reachable now? Windows: is the window open? */
+  checkLive: (item: MediaItem) => Promise<MediaProbeOutcome>;
   onProgress?: (done: number, total: number, label: string) => void;
 }
 
@@ -132,7 +134,7 @@ export function analyzeShow(ctx: PreshowContext): CheckIssue[] {
   // Cues
   for (const cue of [...ctx.cues].sort((a, b) => a.order - b.order)) {
     const refs: Array<{ id: string | undefined; slot: string; expect: Array<MediaItem['type']> }> = [
-      { id: cue.backdropMediaId, slot: 'backdrop', expect: ['image', 'video'] },
+      { id: cue.backdropMediaId, slot: 'backdrop', expect: ['image', 'video', 'web', 'screen'] },
       { id: cue.foregroundMediaId, slot: 'video', expect: ['video'] },
       { id: cue.audioMediaId, slot: 'music', expect: ['audio'] }
     ];
@@ -186,11 +188,38 @@ export async function runPreshowCheck(ctx: PreshowContext, deps: PreshowDeps): P
       .find((c) => c.backdropMediaId === mediaId || c.foregroundMediaId === mediaId || c.audioMediaId === mediaId)?.id;
 
   deps.onProgress?.(0, used.length, 'Checking files on disk');
-  const missing = await deps.findMissingFiles(used.filter((i) => !i.missing));
+  const isLive = (item: MediaItem): boolean => item.type === 'web' || item.type === 'screen';
+  const missing = await deps.findMissingFiles(used.filter((i) => !i.missing && !isLive(i)));
+  if (used.some((i) => i.type === 'web')) {
+    issues.push({
+      id: 'media-web-internet',
+      level: 'info',
+      category: 'media',
+      title: 'Web pages need internet during the show',
+      detail: 'Keep a PDF of the magazine/flipbook in the library as a backup in case the venue connection drops.'
+    });
+  }
   let done = 0;
   for (const item of used) {
     const cueId = firstCueFor(item.id);
-    if (item.missing || missing.has(item.id)) {
+    if (isLive(item)) {
+      deps.onProgress?.(done, used.length, item.type === 'web' ? `Opening ${item.name}` : `Looking for “${item.name}”`);
+      const result = await deps.checkLive(item);
+      if (!result.ok) {
+        issues.push({
+          id: `media-live-${item.id}`,
+          // A window can still be opened before its cue; an unreachable site is a real problem.
+          level: item.type === 'web' ? 'error' : 'warning',
+          category: 'media',
+          title: item.type === 'web' ? `Web page not reachable: ${item.name}` : `Window not open: ${item.name}`,
+          detail:
+            result.problem ??
+            (item.type === 'web' ? 'Check the internet connection and the address.' : 'Open it before its cue, or pick it again in the library.'),
+          cueId,
+          mediaId: item.id
+        });
+      }
+    } else if (item.missing || missing.has(item.id)) {
       issues.push({
         id: `media-missing-${item.id}`,
         level: 'error',
@@ -214,7 +243,7 @@ export async function runPreshowCheck(ctx: PreshowContext, deps: PreshowDeps): P
           mediaId: item.id
         });
       } else {
-        if (item.type !== 'image' && (!result.duration || result.duration <= 0)) {
+        if ((item.type === 'video' || item.type === 'audio') && (!result.duration || result.duration <= 0)) {
           issues.push({
             id: `media-duration-${item.id}`,
             level: 'warning',

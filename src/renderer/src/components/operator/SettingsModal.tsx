@@ -548,6 +548,8 @@ export function SettingsModal(): JSX.Element | null {
   const setAutoFollow = useStageStore((s) => s.setAutoFollow);
   const clickerEnabled = usePrefsStore((s) => s.clickerEnabled);
   const setClickerEnabled = usePrefsStore((s) => s.setClickerEnabled);
+  const clickerTurnsPages = usePrefsStore((s) => s.clickerTurnsPages);
+  const setClickerTurnsPages = usePrefsStore((s) => s.setClickerTurnsPages);
 
   if (panel !== 'settings') return null;
   const clickerKeys = DEFAULT_BINDINGS.filter((b) => b.clicker);
@@ -585,6 +587,18 @@ export function SettingsModal(): JSX.Element | null {
               </li>
             ))}
           </ul>
+          <label className="mt-2 flex items-center justify-between gap-3 rounded border border-av-border bg-av-panel px-2.5 py-2">
+            <span className="text-xs text-av-muted">
+              <span className="font-semibold text-av-text">Clicker turns pages</span>: while a PDF booklet, slide deck or web
+              flipbook is live, forward/back turn its pages; after the last page the clicker moves on to the next cue.
+            </span>
+            <Switch
+              checked={clickerTurnsPages}
+              onChange={setClickerTurnsPages}
+              label="Clicker turns pages"
+              testId="toggle-clicker-pages"
+            />
+          </label>
         </Section>
         <RemoteSection />
         <AudioOutputSection />

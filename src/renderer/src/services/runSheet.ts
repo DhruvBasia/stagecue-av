@@ -34,7 +34,11 @@ function mediaCell(item: MediaItem | null, fallback: string): string {
   if (!item) return `<span class="dim">${escapeHtml(fallback)}</span>`;
   const extra = item.duration !== undefined && item.type !== 'image' ? ` <span class="dur">${formatTime(item.duration)}</span>` : '';
   const missing = item.missing ? ' <span class="bad">MISSING</span>' : '';
-  return `${escapeHtml(item.name)}${extra}${missing}`;
+  let kind = '';
+  if (item.type === 'web') kind = ` <span class="dur">web page · ${escapeHtml(item.web?.url ?? item.fileUrl)} · turn pages live</span>`;
+  else if (item.type === 'screen') kind = ' <span class="dur">live window</span>';
+  else if (item.pdf) kind = ` <span class="dur">${item.pdf.originalPath ? 'slide' : 'page'} ${item.pdf.page}/${item.pdf.pageCount} · turn pages live</span>`;
+  return `${escapeHtml(item.name)}${extra}${kind}${missing}`;
 }
 
 export function totalVideoSeconds(cues: readonly CueItem[], items: readonly MediaItem[]): number {

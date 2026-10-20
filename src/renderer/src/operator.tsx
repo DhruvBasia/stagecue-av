@@ -22,6 +22,7 @@ import { useMediaStore } from './store/useMediaStore';
 import { usePrefsStore } from './store/usePrefsStore';
 import { useShowStore } from './store/useShowStore';
 import { useStageStore } from './store/useStageStore';
+import { useWebStore } from './store/useWebStore';
 import './styles/globals.css';
 
 declare global {
@@ -35,6 +36,7 @@ declare global {
       prefs: typeof usePrefsStore;
       crew: typeof useCrewStore;
       drive: typeof useDriveStore;
+      web: typeof useWebStore;
     };
   }
 }
@@ -90,7 +92,8 @@ if (window.api.isE2E) {
     show: useShowStore,
     prefs: usePrefsStore,
     crew: useCrewStore,
-    drive: useDriveStore
+    drive: useDriveStore,
+    web: useWebStore
   };
 }
 

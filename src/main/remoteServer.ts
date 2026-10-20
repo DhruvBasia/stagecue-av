@@ -128,6 +128,9 @@ export function permissionFor(action: RemoteActionName): keyof StageTeamPermissi
     case 'take-cue':
     case 'next-cue':
     case 'prev-cue':
+    // Turning pages of the live booklet / flipbook is part of running the cue.
+    case 'page-next':
+    case 'page-prev':
       return 'takeCues';
     case 'toggle-video':
     case 'music-toggle':

@@ -1,4 +1,4 @@
-import { EyeOff, Film, ImageIcon, Music, Pause, Play, RotateCcw, Snowflake, Zap } from 'lucide-react';
+import { AppWindow, EyeOff, Film, Globe, ImageIcon, Music, Pause, Play, RotateCcw, Snowflake, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CueItem, MediaItem } from '../../types';
 import { getVisibleView, isBackdropCapable, isForegroundCapable } from '../../services/cueManager';
@@ -6,6 +6,7 @@ import { formatTime } from '../../services/utils';
 import { useMediaStore } from '../../store/useMediaStore';
 import { useStageStore } from '../../store/useStageStore';
 import { Button } from '../common/Button';
+import { PageControls, WebRemoteView } from './PageControls';
 
 const SYNC_TOLERANCE_S = 0.35;
 
@@ -16,6 +17,19 @@ function StillOrLoop({ media, loop }: { media: MediaItem; loop: boolean }): JSX.
     return (
       <div className="flex h-full w-full items-center justify-center bg-black text-[11px] text-av-red">
         Missing: {media.name}
+      </div>
+    );
+  }
+  if (media.type === 'web' || media.type === 'screen') {
+    // Live sources: the library card picture (the live web picture is shown on the Program monitor).
+    const thumb = useMediaStore.getState().getById(media.id)?.thumbnailUrl;
+    return (
+      <div className="relative h-full w-full">
+        {thumb ? <img src={thumb} alt="" draggable={false} className="monitor-media" /> : null}
+        <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded bg-av-blue/90 px-1.5 py-0.5 text-[10px] font-bold text-av-bg">
+          {media.type === 'web' ? <Globe size={11} /> : <AppWindow size={11} />}
+          {media.type === 'web' ? 'LIVE WEB PAGE' : 'LIVE WINDOW'} · {media.name}
+        </span>
       </div>
     );
   }
@@ -349,11 +363,16 @@ function ProgramTransport(): JSX.Element {
 function ProgramMonitor(): JSX.Element {
   const program = useStageStore((s) => s.program);
   const telemetry = useStageStore((s) => s.telemetry);
+  const items = useMediaStore((s) => s.items);
   const liveTime = telemetry ? telemetry.foregroundCurrentTime : 0;
   const view = getVisibleView(program, liveTime);
   const frozen = program.isFrozen;
   const playing = !frozen && telemetry !== null && telemetry.isForegroundPlaying;
   const time = frozen && program.frozenView ? program.frozenView.foregroundTime : liveTime;
+  // The library item (with its PDF page / web address) behind the live backdrop.
+  const liveItem = program.backdrop ? items.find((i) => i.id === program.backdrop?.id) ?? null : null;
+  const booklet = liveItem !== null && !liveItem.missing && (liveItem.pdf !== undefined || liveItem.type === 'web');
+  const webLive = liveItem !== null && liveItem.type === 'web' && view.backdrop?.id === liveItem.id;
 
   return (
     <MonitorFrame
@@ -366,9 +385,11 @@ function ProgramMonitor(): JSX.Element {
           {program.liveCueLabel ? `LIVE · ${program.liveCueLabel}` : 'LIVE'}
         </span>
       }
-      footer={<ProgramTransport />}
+      footer={booklet && liveItem && !program.foreground ? <PageControls item={liveItem} /> : <ProgramTransport />}
     >
-      {view.backdrop ? (
+      {webLive && liveItem ? (
+        <WebRemoteView media={liveItem} />
+      ) : view.backdrop ? (
         <div className="absolute inset-0">
           <StillOrLoop media={view.backdrop} loop={program.loopBackdrop} />
         </div>

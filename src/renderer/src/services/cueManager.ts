@@ -74,8 +74,13 @@ export function clampTransitionDuration(transition: TransitionType, ms: number):
   return Math.round(clamp(ms, 0, MAX_TRANSITION_MS));
 }
 
+/** Anything that fills the screen as the base layer: posters, looping videos, web pages, window captures. */
 export function isBackdropCapable(media: MediaItem | null): media is MediaItem {
-  return media !== null && !media.missing && (media.type === 'image' || media.type === 'video');
+  return (
+    media !== null &&
+    !media.missing &&
+    (media.type === 'image' || media.type === 'video' || media.type === 'web' || media.type === 'screen')
+  );
 }
 
 export function isForegroundCapable(media: MediaItem | null): media is MediaItem {
@@ -129,6 +134,34 @@ export function buildAdHocPayload(
     loopBackdrop: true,
     duckAudioOnVideo: true
   };
+}
+
+export const PAGE_TURN_MS = 250;
+
+/**
+ * Turning a booklet page: the same cue stays live and only the backdrop changes,
+ * with a short dissolve. A video playing on top continues from where it is.
+ */
+export function buildPageTurnPayload(
+  program: ProgramState,
+  page: MediaItem,
+  takeId: number,
+  foregroundTime: number | null
+): StageCuePayload {
+  const payload: StageCuePayload = {
+    takeId,
+    cueId: program.liveCueId,
+    label: program.liveCueLabel || page.name,
+    backdrop: toStageMedia(page),
+    foreground: program.foreground,
+    transition: 'dissolve',
+    transitionDurationMs: PAGE_TURN_MS,
+    autoPlayForeground: program.autoPlayForeground,
+    loopBackdrop: program.loopBackdrop,
+    duckAudioOnVideo: program.duckAudioOnVideo
+  };
+  if (program.foreground && foregroundTime !== null) payload.foregroundStartAt = foregroundTime;
+  return payload;
 }
 
 export function programReducer(state: ProgramState, action: ProgramAction): ProgramState {
@@ -287,6 +320,8 @@ export function duplicateCue(cues: readonly CueItem[], cueId: string, newId: str
 export function assignMediaToCue(cue: CueItem, media: MediaItem): CueItem {
   switch (media.type) {
     case 'image':
+    case 'web':
+    case 'screen':
       return { ...cue, backdropMediaId: media.id };
     case 'video':
       return { ...cue, foregroundMediaId: media.id };

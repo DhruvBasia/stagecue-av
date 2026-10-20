@@ -74,14 +74,19 @@ export function mediaPathKey(filePath: string, platform: string): string {
 
 type PageRefLike = { sourcePath: string; page: number; originalPath?: string };
 
-/** The file on disk the operator thinks of: the deck for slides, the PDF for pages, else the file. */
+/** The file on disk the operator thinks of: the deck for slides, the PDF for pages, else the file (or address). */
 export function sourcePathOf(item: { filePath: string; pdf?: Omit<PageRefLike, 'page'> }): string {
   if (!item.pdf) return item.filePath;
   return item.pdf.originalPath ?? item.pdf.sourcePath;
 }
 
-/** Library identity: one entry per file, or per page/slide for PDFs and decks. */
-export function mediaIdentityKey(item: { filePath: string; pdf?: PageRefLike }, platform: string): string {
+/** Library identity: one entry per file, per page/slide for PDFs and decks, per address / window otherwise. */
+export function mediaIdentityKey(
+  item: { filePath: string; pdf?: PageRefLike; web?: { url: string }; capture?: { sourceId: string } },
+  platform: string
+): string {
+  if (item.web) return `web:${item.web.url}`;
+  if (item.capture) return `capture:${item.capture.sourceId}`;
   return item.pdf ? `${mediaPathKey(sourcePathOf(item), platform)}#${item.pdf.page}` : mediaPathKey(item.filePath, platform);
 }
 
@@ -103,7 +108,9 @@ export function stripExtension(fileName: string): string {
 export const MEDIA_TYPE_LABEL: Record<MediaType, string> = {
   image: 'Backdrops & Posters',
   video: 'Videos (Kulgeet / Anthem)',
-  audio: 'Background Tracks'
+  audio: 'Background Tracks',
+  web: 'Web pages',
+  screen: 'Screens & windows'
 };
 
 /** Strips UI-only fields (thumbnail data URLs) before media crosses IPC to the stage. */
@@ -117,7 +124,45 @@ export function toStageMedia(item: MediaItem): MediaItem {
   };
   if (item.duration !== undefined) result.duration = item.duration;
   if (item.dimensions !== undefined) result.dimensions = { ...item.dimensions };
+  if (item.web) result.web = { ...item.web };
+  if (item.capture) result.capture = { ...item.capture };
   return result;
+}
+
+/** Accepts what operators type ("example.com/mag") and returns a full http(s) URL, or null. */
+export function normalizeWebUrl(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (!url.hostname || (!url.hostname.includes('.') && url.hostname !== 'localhost' && !/^\[.*\]$/.test(url.hostname))) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Library name for a web page: last path segment ("netted-bytes") or the host. */
+export function webPageName(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const segment = parsed.pathname.split('/').filter(Boolean).pop();
+    if (!segment) {
+      const host = parsed.hostname.replace(/^www\./, '');
+      return host.charAt(0).toUpperCase() + host.slice(1);
+    }
+    const words = decodeURIComponent(segment)
+      .replace(/\.[a-z0-9]{2,5}$/i, '')
+      .replace(/[-_]+/g, ' ')
+      .trim();
+    return words ? words.replace(/\b\w/g, (c) => c.toUpperCase()) : parsed.hostname;
+  } catch {
+    return url;
+  }
 }
 
 export function delay(ms: number): Promise<void> {

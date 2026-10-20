@@ -3,6 +3,7 @@ import {
   INVOKE_CHANNELS,
   MAIN_TO_RENDERER_CHANNELS,
   OPERATOR_TO_STAGE_CHANNELS,
+  STAGE_INVOKE_CHANNELS,
   STAGE_TO_OPERATOR_CHANNELS,
   type InvokeContracts,
   type ReceivePayloads,
@@ -28,8 +29,16 @@ const isE2E = process.argv.includes('--stagecue-e2e');
 
 const sendable = new Set<string>(
   role === 'operator'
-    ? [...OPERATOR_TO_STAGE_CHANNELS, 'app:set-dirty', 'remote:status', 'remote:cues', 'remote:ack', 'remote:send-message']
-    : [...STAGE_TO_OPERATOR_CHANNELS, 'stage:ready']
+    ? [
+        ...OPERATOR_TO_STAGE_CHANNELS,
+        'app:set-dirty',
+        'remote:status',
+        'remote:cues',
+        'remote:ack',
+        'remote:send-message',
+        'web:input'
+      ]
+    : [...STAGE_TO_OPERATOR_CHANNELS, 'stage:ready', 'stage:web-live']
 );
 
 const receivable = new Set<string>(
@@ -38,7 +47,7 @@ const receivable = new Set<string>(
     : [...OPERATOR_TO_STAGE_CHANNELS, 'display:changed']
 );
 
-const invokable = new Set<string>(role === 'operator' ? INVOKE_CHANNELS : ['display:get-list']);
+const invokable = new Set<string>(role === 'operator' ? INVOKE_CHANNELS : STAGE_INVOKE_CHANNELS);
 
 const api: StageCueApi = {
   role,

@@ -3,8 +3,25 @@
  * Imported by the main process, the preload bridge and both renderers.
  * ========================================================================= */
 
-export type MediaType = 'image' | 'video' | 'audio';
+/** Kinds that are files on disk. */
+export type FileMediaType = 'image' | 'video' | 'audio';
+/**
+ * web    – a live web page (e.g. an online flipbook magazine) shown on stage and
+ *          controlled from the operator window.
+ * screen – a live capture of an app window or a whole screen.
+ */
+export type MediaType = FileMediaType | 'web' | 'screen';
 export type TransitionType = 'cut' | 'fade' | 'dissolve';
+
+export interface WebPageRef {
+  url: string;
+}
+
+export interface CaptureRef {
+  /** desktopCapturer id; window ids change when the app restarts, so `name` is used to find it again. */
+  sourceId: string;
+  kind: 'window' | 'screen';
+}
 
 export interface MediaItem {
   id: string;
@@ -22,6 +39,10 @@ export interface MediaItem {
   probeError?: string;
   /** Set for backdrops rendered from a PDF page; filePath/fileUrl point at the cached render. */
   pdf?: PdfPageRef;
+  /** type 'web': the page address (filePath/fileUrl hold the same URL). */
+  web?: WebPageRef;
+  /** type 'screen': the window or screen to capture (filePath holds its name). */
+  capture?: CaptureRef;
 }
 
 export interface PdfPageRef {
@@ -111,7 +132,9 @@ export type RemoteActionName =
   | 'fade-audio'
   | 'toggle-video'
   | 'music-toggle'
-  | 'toggle-follow';
+  | 'toggle-follow'
+  | 'page-next'
+  | 'page-prev';
 
 export const REMOTE_ACTIONS: readonly RemoteActionName[] = [
   'take',
@@ -124,8 +147,18 @@ export const REMOTE_ACTIONS: readonly RemoteActionName[] = [
   'fade-audio',
   'toggle-video',
   'music-toggle',
-  'toggle-follow'
+  'toggle-follow',
+  'page-next',
+  'page-prev'
 ];
+
+/** A live cue whose pages can be turned: a PDF booklet or a web page (flipbook). */
+export interface LivePaging {
+  kind: 'pdf' | 'web';
+  /** Current page (web: read from a ?page= address when the site has one). */
+  page: number | null;
+  pageCount: number | null;
+}
 
 /**
  * operator – the AV-room's own phone: full control, never locked.
@@ -269,6 +302,8 @@ export interface RemoteStatus {
   autoFollowEnabled: boolean;
   followCountdown: number | null;
   projector: StageMode | null;
+  /** Set while a PDF booklet or web page is live: phones show page buttons. */
+  paging: LivePaging | null;
 }
 
 export interface RemoteConfigRequest {
@@ -502,6 +537,92 @@ export interface MediaErrorPayload {
   code: number | null;
 }
 
+/* ------------------------- Web pages & screen capture --------------------- */
+
+/** Session for on-stage web pages: the only one the stage may embed, sandboxed and without permissions. */
+export const WEB_PARTITION = 'persist:stagecue-web';
+
+/** Stage → main: which on-stage web page (webview guest) is the live one. */
+export interface StageWebLivePayload {
+  mediaId: string | null;
+  takeId: number;
+  /** webContents id of the live <webview>; null when no web page is on stage. */
+  webContentsId: number | null;
+  /** The address the cue asked for ("home" for the operator's Home button). */
+  homeUrl: string | null;
+}
+
+export const WEB_KEYS = [
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End',
+  'Space',
+  'Enter',
+  'Escape'
+] as const;
+export type WebKey = (typeof WEB_KEYS)[number];
+
+/** Operator → main: input for the live web page. Pointer coordinates are 0–1 of the page. */
+export type WebInput =
+  | { type: 'pointer'; phase: 'down' | 'move' | 'up'; x: number; y: number }
+  | { type: 'wheel'; x: number; y: number; deltaY: number }
+  | { type: 'key'; key: WebKey }
+  | { type: 'nav'; action: 'back' | 'forward' | 'reload' | 'home' }
+  | { type: 'mute'; muted: boolean };
+
+/** Main → operator: live picture and state of the on-stage web page. */
+export interface WebFrame {
+  mediaId: string;
+  /** JPEG data URL; null when the picture has not changed since the last frame. */
+  image: string | null;
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  muted: boolean;
+  /** Page number from a ?page= address (flipbooks), else null. */
+  page: number | null;
+  at: number;
+}
+
+export interface WebInspectRequest {
+  url: string;
+  /** Also load the page off-screen and return its title and a thumbnail. */
+  snapshot: boolean;
+}
+
+export interface WebInspectResult {
+  ok: boolean;
+  status: number | null;
+  error: string | null;
+  /** Address after redirects. */
+  finalUrl: string;
+  title: string | null;
+  /** Small JPEG data URL of the loaded page. */
+  thumbnail: string | null;
+}
+
+/** A window or screen that can be shown on stage. */
+export interface CaptureSourceInfo {
+  id: string;
+  name: string;
+  kind: 'window' | 'screen';
+  /** Small JPEG data URL. */
+  thumbnail: string;
+}
+
+export interface CaptureResolveRequest {
+  sourceId: string;
+  name: string;
+  kind: 'window' | 'screen';
+}
+
 export interface ForegroundEndedPayload {
   mediaId: string;
   takeId: number;
@@ -608,7 +729,7 @@ export type MenuCommand =
 /* ---------------------------- Media & show files ------------------------- */
 
 export interface MediaDialogOptions {
-  types: MediaType[];
+  types: FileMediaType[];
   multiSelections: boolean;
 }
 
@@ -623,7 +744,7 @@ export interface ResolvedMediaFile {
   filePath: string;
   fileUrl: string;
   name: string;
-  type: MediaType | null;
+  type: FileMediaType | null;
   sizeBytes: number;
   exists: boolean;
   /** A PDF document: must be rendered into per-page backdrops before use. */
@@ -657,6 +778,8 @@ export interface StoredMediaRef {
   duration?: number;
   dimensions?: { width: number; height: number };
   pdf?: PdfPageRef;
+  web?: WebPageRef;
+  capture?: CaptureRef;
 }
 
 export const SHOW_FILE_VERSION = 1;
@@ -721,7 +844,9 @@ export const RENDERER_TO_MAIN_CHANNELS = [
   'remote:status',
   'remote:cues',
   'remote:ack',
-  'remote:send-message'
+  'remote:send-message',
+  'stage:web-live',
+  'web:input'
 ] as const;
 
 export const MAIN_TO_RENDERER_CHANNELS = [
@@ -731,7 +856,8 @@ export const MAIN_TO_RENDERER_CHANNELS = [
   'remote:action',
   'remote:info',
   'remote:message',
-  'drive:progress'
+  'drive:progress',
+  'web:frame'
 ] as const;
 
 export const INVOKE_CHANNELS = [
@@ -754,8 +880,15 @@ export const INVOKE_CHANNELS = [
   'drive:inspect',
   'drive:sync',
   'drive:choose-folder',
-  'drive:open-folder'
+  'drive:open-folder',
+  'stage:capture-web',
+  'web:inspect',
+  'capture:list-sources',
+  'capture:resolve'
 ] as const;
+
+/** The only invoke channels the stage window may use. */
+export const STAGE_INVOKE_CHANNELS = ['display:get-list', 'stage:capture-web', 'capture:resolve'] as const;
 
 export type OperatorToStageChannel = (typeof OPERATOR_TO_STAGE_CHANNELS)[number];
 export type StageToOperatorChannel = (typeof STAGE_TO_OPERATOR_CHANNELS)[number];
@@ -797,6 +930,8 @@ export interface RendererToMainPayloads {
   'remote:cues': RemoteCue[];
   'remote:ack': RemoteAck;
   'remote:send-message': CrewMessageRequest;
+  'stage:web-live': StageWebLivePayload;
+  'web:input': WebInput;
 }
 
 export interface MainToRendererPayloads {
@@ -807,6 +942,7 @@ export interface MainToRendererPayloads {
   'remote:info': RemoteInfo;
   'remote:message': CrewMessage;
   'drive:progress': DriveSyncProgress;
+  'web:frame': WebFrame;
 }
 
 export interface InvokeContracts {
@@ -830,6 +966,12 @@ export interface InvokeContracts {
   'drive:sync': { args: [request: DriveSyncRequest]; result: DriveSyncResult };
   'drive:choose-folder': { args: []; result: string | null };
   'drive:open-folder': { args: [localPath: string]; result: boolean };
+  /** Full-resolution JPEG data URL of the live on-stage web page (used for freeze). */
+  'stage:capture-web': { args: []; result: string | null };
+  'web:inspect': { args: [request: WebInspectRequest]; result: WebInspectResult };
+  'capture:list-sources': { args: []; result: CaptureSourceInfo[] };
+  /** Current id of a window/screen (window ids change after an app restart). */
+  'capture:resolve': { args: [request: CaptureResolveRequest]; result: string | null };
 }
 
 export type SendPayloads = OperatorToStagePayloads & StageToOperatorPayloads & RendererToMainPayloads;

@@ -15,7 +15,13 @@ export type HotkeyAction =
   | 'next-cue'
   | 'prev-cue'
   | 'toggle-video'
-  | 'toggle-follow';
+  | 'toggle-follow'
+  | 'page-next'
+  | 'page-prev'
+  /** Clicker forward: turns the page of a live booklet, otherwise TAKE. */
+  | 'clicker-next'
+  /** Clicker back: previous page of a live booklet, otherwise highlight the previous cue. */
+  | 'clicker-prev';
 
 export interface HotkeyBinding {
   action: HotkeyAction;
@@ -108,22 +114,40 @@ export const DEFAULT_BINDINGS: readonly HotkeyBinding[] = [
     allowInModal: false,
     ignoreRepeat: true
   },
+  {
+    action: 'page-next',
+    keys: ['BracketRight'],
+    label: ']',
+    description: 'Next page of the live PDF / web page',
+    allowInTextInput: false,
+    allowInModal: false,
+    ignoreRepeat: false
+  },
+  {
+    action: 'page-prev',
+    keys: ['BracketLeft'],
+    label: '[',
+    description: 'Previous page of the live PDF / web page',
+    allowInTextInput: false,
+    allowInModal: false,
+    ignoreRepeat: false
+  },
   // Presentation clickers send Page Down/Up or arrow keys, and B / "." for their "blank screen" button.
   {
-    action: 'take',
+    action: 'clicker-next',
     keys: ['PageDown', 'ArrowRight'],
     label: 'PgDn / →',
-    description: 'Clicker: TAKE',
+    description: 'Clicker: TAKE (turns the page while a PDF / web page is live)',
     allowInTextInput: false,
     allowInModal: false,
     ignoreRepeat: true,
     clicker: true
   },
   {
-    action: 'prev-cue',
+    action: 'clicker-prev',
     keys: ['PageUp', 'ArrowLeft'],
     label: 'PgUp / ←',
-    description: 'Clicker: highlight previous cue',
+    description: 'Clicker: highlight previous cue (previous page while a PDF / web page is live)',
     allowInTextInput: false,
     allowInModal: false,
     ignoreRepeat: true,

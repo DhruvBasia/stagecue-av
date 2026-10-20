@@ -2,7 +2,7 @@ import { createReadStream, promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { protocol } from 'electron';
-import type { MediaPathRequest, MediaType, ResolvedMediaFile } from '../renderer/src/types';
+import type { FileMediaType, MediaPathRequest, ResolvedMediaFile } from '../renderer/src/types';
 
 /**
  * Secure `local-media://` streaming protocol.
@@ -44,7 +44,7 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
   '.weba': 'audio/webm'
 };
 
-export const MEDIA_EXTENSIONS: Readonly<Record<MediaType, readonly string[]>> = {
+export const MEDIA_EXTENSIONS: Readonly<Record<FileMediaType, readonly string[]>> = {
   // PDFs and slide decks land in the backdrop bin; each page/slide is rendered to a cached PNG before use.
   image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif', '.svg', '.pdf', '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.odp'],
   video: ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.ogv'],
@@ -70,9 +70,9 @@ export function clearAllowedMediaPaths(): void {
   allowedPaths.clear();
 }
 
-export function classifyMediaPath(filePath: string): MediaType | null {
+export function classifyMediaPath(filePath: string): FileMediaType | null {
   const ext = path.extname(filePath).toLowerCase();
-  for (const type of Object.keys(MEDIA_EXTENSIONS) as MediaType[]) {
+  for (const type of Object.keys(MEDIA_EXTENSIONS) as FileMediaType[]) {
     if (MEDIA_EXTENSIONS[type].includes(ext)) return type;
   }
   return null;

@@ -10,6 +10,7 @@ import type {
   StageCuePayload,
   StageMode,
   StageSyncSnapshot,
+  StageWebLivePayload,
   UnfreezeRequest
 } from './types';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -17,7 +18,7 @@ import { StageBackdrop, type StageBackdropHandle } from './components/stage/Stag
 import { StageBlackout } from './components/stage/StageBlackout';
 import { StageFreezeLayer, type StageFreezeHandle } from './components/stage/StageFreezeLayer';
 import { StageVideoPlayer, type StageVideoHandle } from './components/stage/StageVideoPlayer';
-import { ReadyTracker } from './components/stage/readyTracker';
+import { ReadyTracker, type CaptureSource } from './components/stage/readyTracker';
 import { AudioEngine } from './services/audioEngine';
 import { AUTO_RETURN_FADE_MS, UNFREEZE_FADE_MS } from './services/cueManager';
 import { delay } from './services/utils';
@@ -86,6 +87,20 @@ async function applyAudioOutput(deviceId: string): Promise<void> {
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+/** Full-quality still of the live web page, decoded and ready to draw. Null when unavailable. */
+async function captureWebStill(): Promise<HTMLImageElement | null> {
+  try {
+    const dataUrl = await window.api.invoke('stage:capture-web');
+    if (!dataUrl) return null;
+    const img = new Image();
+    img.src = dataUrl;
+    await img.decode();
+    return img;
+  } catch {
+    return null;
+  }
 }
 
 function runAudioCommand(command: AudioCommand): void {
@@ -191,6 +206,7 @@ function StageApp(): JSX.Element {
 
   const handleFreeze = useCallback((request: FreezeRequest) => {
     revealSeq.current += 1;
+    const seq = revealSeq.current;
     const now = (): number => Date.now();
     if (frozenRef.current) {
       window.api.send('stage:freeze-ack', {
@@ -202,19 +218,28 @@ function StageApp(): JSX.Element {
       });
       return;
     }
-    const sources = [
-      ...(backdropRef.current ? backdropRef.current.getCaptureSources() : []),
-      ...(videoRef.current ? videoRef.current.getCaptureSources() : [])
-    ];
-    const result = freezeRef.current ? freezeRef.current.capture(sources) : { source: 'empty' as const, drawn: 0 };
+    const finish = (backdropSources: CaptureSource[]): void => {
+      const sources = [...backdropSources, ...(videoRef.current ? videoRef.current.getCaptureSources() : [])];
+      const result = freezeRef.current ? freezeRef.current.capture(sources) : { source: 'empty' as const, drawn: 0 };
+      const acknowledgedAt = now();
+      window.api.send('stage:freeze-ack', {
+        isFrozen: true,
+        requestedAt: request.requestedAt,
+        acknowledgedAt,
+        latencyMs: Math.max(0, acknowledgedAt - request.requestedAt),
+        source: result.source
+      });
+    };
     frozenRef.current = true;
-    const acknowledgedAt = now();
-    window.api.send('stage:freeze-ack', {
-      isFrozen: true,
-      requestedAt: request.requestedAt,
-      acknowledgedAt,
-      latencyMs: Math.max(0, acknowledgedAt - request.requestedAt),
-      source: result.source
+    if (!backdropRef.current?.isWebLive()) {
+      finish(backdropRef.current ? backdropRef.current.getCaptureSources() : []);
+      return;
+    }
+    // A web page cannot be drawn into a canvas from here: the main process takes a full-quality still of it.
+    void captureWebStill().then((still) => {
+      // An unfreeze or a new take while capturing wins.
+      if (seq !== revealSeq.current || !frozenRef.current) return;
+      finish(still ? [{ element: still, opacity: 1, layer: 'backdrop' }] : []);
     });
   }, []);
 
@@ -344,6 +369,10 @@ function StageApp(): JSX.Element {
     reportError('backdrop', media, takeId, message);
   }, []);
 
+  const handleWebLiveChange = useCallback((payload: StageWebLivePayload) => {
+    window.api.send('stage:web-live', payload);
+  }, []);
+
   const projector = displayMode === 'projector';
   const takeId = cue ? cue.takeId : 0;
 
@@ -362,6 +391,7 @@ function StageApp(): JSX.Element {
         durationMs={cue ? cue.transitionDurationMs : 0}
         tracker={backdropTracker}
         onError={handleBackdropError}
+        onWebLiveChange={handleWebLiveChange}
       />
       <StageVideoPlayer
         ref={videoRef}

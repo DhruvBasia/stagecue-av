@@ -20,6 +20,7 @@ import {
 import { registerIpcHandlers, sendToWindow } from './ipcHandlers';
 import { registerMediaProtocol, registerMediaSchemePrivileges } from './protocolHandler';
 import { RemoteServer } from './remoteServer';
+import { configureWebSession, hardenGuest, sanitizeWebview, WebStageController } from './webStage';
 
 /* ------------------------------------------------------------------------ */
 /* Process-level configuration (must run before `ready`).                    */
@@ -45,6 +46,7 @@ let quitConfirmed = false;
 let quitPromptOpen = false;
 let stageRecreateTimer: ReturnType<typeof setTimeout> | null = null;
 let remoteServer: RemoteServer = new RemoteServer({ onAction: () => undefined, onMessage: () => undefined });
+const webStage = new WebStageController({ sendFrame: (frame) => sendToWindow(operatorWindow, 'web:frame', frame) });
 
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                    */
@@ -63,10 +65,16 @@ function loadPage(win: BrowserWindow, page: 'index' | 'stage'): void {
   });
 }
 
-function hardenWebContents(contents: WebContents): void {
+function hardenWebContents(contents: WebContents, allowWebPages = false): void {
   contents.setWindowOpenHandler(() => ({ action: 'deny' }));
   contents.on('will-navigate', (event) => event.preventDefault());
-  contents.on('will-attach-webview', (event) => event.preventDefault());
+  if (allowWebPages) {
+    // Only the stage may embed web pages (web-page cues), sandboxed in their own session.
+    contents.on('will-attach-webview', sanitizeWebview);
+    contents.on('did-attach-webview', (_event, guest) => hardenGuest(guest));
+  } else {
+    contents.on('will-attach-webview', (event) => event.preventDefault());
+  }
 }
 
 function notifyOperatorStageConnection(payload: StageConnectionPayload): void {
@@ -230,11 +238,12 @@ function createStageWindow(placement: StagePlacement): BrowserWindow {
       spellcheck: false,
       backgroundThrottling: false,
       autoplayPolicy: 'no-user-gesture-required',
+      webviewTag: true,
       additionalArguments: ['--stagecue-role=stage', ...(isE2E ? ['--stagecue-e2e'] : [])]
     }
   });
 
-  hardenWebContents(win.webContents);
+  hardenWebContents(win.webContents, true);
   if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   win.once('ready-to-show', () => {
@@ -367,6 +376,7 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
 
   registerMediaProtocol();
+  configureWebSession();
 
   const isOwnWindow = (contents: WebContents | null): boolean =>
     contents !== null &&
@@ -375,7 +385,16 @@ async function bootstrap(): Promise<void> {
 
   // Our own windows may pick an audio output device (names are listed via enumerateDevices).
   const ownWindowPermissions = new Set(['speaker-selection', 'clipboard-sanitized-write']);
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
+  const isStage = (contents: WebContents | null): boolean =>
+    contents !== null && stageWindow !== null && !stageWindow.isDestroyed() && contents === stageWindow.webContents;
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    // Window/screen-share cues: the stage captures a window picked by the operator. Chromium asks for desktop
+    // capture with an empty media-type list; camera and microphone requests list 'video'/'audio' and are refused.
+    if (permission === 'media') {
+      const mediaTypes = 'mediaTypes' in details && Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+      callback(isStage(contents) && mediaTypes.length === 0);
+      return;
+    }
     callback(permission === 'fullscreen' || (ownWindowPermissions.has(permission) && isOwnWindow(contents)));
   });
   session.defaultSession.setPermissionCheckHandler((contents, permission) => {
@@ -414,6 +433,7 @@ async function bootstrap(): Promise<void> {
               downloadBase: process.env.STAGECUE_DRIVE_BASE
             }
           : {},
+      web: webStage,
       onDirtyChange: (dirty) => {
         showDirty = dirty;
         if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.setDocumentEdited(dirty);
@@ -465,6 +485,7 @@ if (!hasLock) {
     displayManager?.stop();
     disposeIpc?.();
     void remoteServer.stop();
+    webStage.stop();
     if (stageRecreateTimer !== null) clearTimeout(stageRecreateTimer);
     if (powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)) {
       powerSaveBlocker.stop(powerBlockerId);

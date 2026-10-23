@@ -41,15 +41,19 @@ export function bitmapDifference(a: Buffer, b: Buffer): number {
 }
 
 /**
- * Has the flipbook reached its last view? Sites that put the page in the
- * address (?page=12) are judged by the address; others by the picture.
+ * Did the → key bring up a new view? Sites that put the page in the address
+ * (?page=12) are judged by the address; others by the picture.
  */
-export function reachedEnd(previousUrl: string, currentUrl: string, pictureDifference: number): boolean {
+export function isNewView(previousUrl: string, currentUrl: string, pictureDifference: number): boolean {
   const before = pageFromUrl(previousUrl);
   const after = pageFromUrl(currentUrl);
-  if (before !== null && after !== null) return after <= before;
-  return pictureDifference < SAME_VIEW_THRESHOLD;
+  if (after !== null && (before === null || after !== before)) return after > (before ?? 0);
+  if (before !== null && after !== null) return false;
+  return pictureDifference >= SAME_VIEW_THRESHOLD;
 }
+
+/** Extra tries (with longer waits) before a page that did not turn counts as the last one. */
+export const TURN_RETRIES = 2;
 
 /** "Netted Bytes" → "Netted Bytes (offline copy).pdf" with characters Windows does not allow removed. */
 export function offlinePdfName(name: string): string {
@@ -195,15 +199,22 @@ export async function makeOfflineCopy(
       report('capturing', files.length);
       if (index === MAX_OFFLINE_PAGES) break;
 
-      page.pressRight();
-      const next = await page.still(TURN_SETTLE_MS);
-      if (!next) break;
-      const nextSignature = signature(next);
-      const nextUrl = page.url();
-      if (reachedEnd(previousUrl, nextUrl, bitmapDifference(previousSignature, nextSignature))) break;
-      view = next;
-      previousSignature = nextSignature;
-      previousUrl = nextUrl;
+      // Turn the page; a slow site gets a couple of extra tries before this counts as the last page.
+      let turned: { image: NativeImage; signature: Buffer; url: string } | null = null;
+      for (let attempt = 0; attempt <= TURN_RETRIES && !turned; attempt += 1) {
+        page.pressRight();
+        const next = await page.still(TURN_SETTLE_MS * (attempt + 1));
+        if (!next) continue;
+        const nextSignature = signature(next);
+        const nextUrl = page.url();
+        if (isNewView(previousUrl, nextUrl, bitmapDifference(previousSignature, nextSignature))) {
+          turned = { image: next, signature: nextSignature, url: nextUrl };
+        }
+      }
+      if (!turned) break;
+      view = turned.image;
+      previousSignature = turned.signature;
+      previousUrl = turned.url;
     }
 
     report('saving', files.length);

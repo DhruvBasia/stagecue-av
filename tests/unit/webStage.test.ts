@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isCaptureResolveRequest, isWebAddress, parseWebInput, sanitizeWebview, WEB_PARTITION } from '../../src/main/webStage';
-import { bitmapDifference, buildBookletHtml, offlinePdfName, reachedEnd } from '../../src/main/webOffline';
+import { bitmapDifference, buildBookletHtml, isNewView, offlinePdfName, TURN_RETRIES } from '../../src/main/webOffline';
 
 describe('offline copy of a web flipbook', () => {
   const bitmap = (value: number, pixels = 16): Buffer => Buffer.alloc(pixels * 4, value);
@@ -14,14 +14,16 @@ describe('offline copy of a web flipbook', () => {
     expect(bitmapDifference(bitmap(1, 4), bitmap(1, 8))).toBe(255);
   });
 
-  it('stops at the last page: by the address when the site has page numbers, otherwise by the picture', () => {
-    expect(reachedEnd('https://x.dev/mag?page=17', 'https://x.dev/mag?page=18', 0)).toBe(false);
-    // The address did not move: last page, even if an animation changed the picture.
-    expect(reachedEnd('https://x.dev/mag?page=18', 'https://x.dev/mag?page=18', 40)).toBe(true);
-    expect(reachedEnd('https://x.dev/mag', 'https://x.dev/mag', 0.4)).toBe(true);
-    expect(reachedEnd('https://x.dev/mag', 'https://x.dev/mag', 25)).toBe(false);
+  it('knows a page turned: by the address when the site has page numbers, otherwise by the picture', () => {
+    expect(isNewView('https://x.dev/mag?page=17', 'https://x.dev/mag?page=18', 0)).toBe(true);
+    // The address did not move: no new page, even if an animation changed the picture.
+    expect(isNewView('https://x.dev/mag?page=18', 'https://x.dev/mag?page=18', 40)).toBe(false);
+    expect(isNewView('https://x.dev/mag?page=18', 'https://x.dev/mag?page=17', 40)).toBe(false);
+    expect(isNewView('https://x.dev/mag', 'https://x.dev/mag', 0.4)).toBe(false);
+    expect(isNewView('https://x.dev/mag', 'https://x.dev/mag', 25)).toBe(true);
     // The cover has no page number yet; the first turn adds one.
-    expect(reachedEnd('https://x.dev/mag', 'https://x.dev/mag?page=2', 30)).toBe(false);
+    expect(isNewView('https://x.dev/mag', 'https://x.dev/mag?page=2', 0)).toBe(true);
+    expect(TURN_RETRIES).toBeGreaterThanOrEqual(1);
   });
 
   it('names the PDF safely and lays out one full-bleed page per view', () => {

@@ -36,6 +36,22 @@ export interface AppUpdaterOptions {
   onBeforeInstall: () => void;
 }
 
+/**
+ * PowerShell for a hidden helper that reopens StageCue once the update installer
+ * has finished (the installer's own "run after" is unreliable on some Windows
+ * set-ups). If StageCue is already running again, it does nothing.
+ */
+export function relaunchAfterUpdateScript(exePath: string): string {
+  const exe = exePath.replace(/'/g, "''");
+  return [
+    '$deadline = (Get-Date).AddMinutes(5)',
+    'Start-Sleep -Seconds 3',
+    "while ((Get-Process -Name 'installer', 'StageCue-AV-Setup*', 'Un_A', 'Un_B' -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) { Start-Sleep -Seconds 1 }",
+    'Start-Sleep -Seconds 2',
+    `if (-not (Get-Process -Name 'StageCue AV' -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath '${exe}')) { Start-Process -FilePath '${exe}' -ArgumentList '--updated' }`
+  ].join('; ');
+}
+
 /** Turns updater errors into something an operator can act on. */
 export function describeUpdateError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);

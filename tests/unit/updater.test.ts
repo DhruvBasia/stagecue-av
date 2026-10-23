@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import { AppUpdater, describeUpdateError, type UpdaterLike } from '../../src/main/updater';
+import { AppUpdater, describeUpdateError, relaunchAfterUpdateScript, type UpdaterLike } from '../../src/main/updater';
 import type { UpdateStatus } from '../../src/renderer/src/types';
 
 class FakeUpdater extends EventEmitter {
@@ -77,5 +77,13 @@ describe('self-update', () => {
     expect(await updater.check()).toMatchObject({ state: 'error', error: 'No internet connection' });
     expect(updater.install()).toBe(false);
     expect(describeUpdateError(new Error('HttpError: 404 \nCannot find latest.yml'))).toBe('No published update found yet');
+  });
+
+  it('reopens StageCue after the installer finishes, unless it is already running', () => {
+    const script = relaunchAfterUpdateScript("C:\\Users\\o'brien\\AppData\\Local\\Programs\\StageCue AV\\StageCue AV.exe");
+    expect(script).toContain("Get-Process -Name 'installer'");
+    expect(script).toContain("-not (Get-Process -Name 'StageCue AV'");
+    // Single quotes in the path are escaped for PowerShell.
+    expect(script).toContain("Start-Process -FilePath 'C:\\Users\\o''brien\\AppData\\Local\\Programs\\StageCue AV\\StageCue AV.exe'");
   });
 });

@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import {
   app,
@@ -20,7 +21,7 @@ import {
 import { registerIpcHandlers, sendToWindow } from './ipcHandlers';
 import { registerMediaProtocol, registerMediaSchemePrivileges } from './protocolHandler';
 import { RemoteServer } from './remoteServer';
-import { AppUpdater, type UpdaterLike } from './updater';
+import { AppUpdater, relaunchAfterUpdateScript, type UpdaterLike } from './updater';
 import { configureWebSession, hardenGuest, sanitizeWebview, WebStageController } from './webStage';
 
 /* ------------------------------------------------------------------------ */
@@ -61,6 +62,16 @@ const appUpdater = new AppUpdater({
   onStatus: (status) => sendToWindow(operatorWindow, 'app:update-status', status),
   onBeforeInstall: () => {
     quitConfirmed = true;
+    if (process.platform !== 'win32') return;
+    // Reopen StageCue once the installer is done, in a clean (non-test) environment.
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.STAGECUE_E2E;
+    delete env.STAGECUE_E2E_UPDATER;
+    spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', relaunchAfterUpdateScript(process.execPath)],
+      { detached: true, stdio: 'ignore', windowsHide: true, env }
+    ).unref();
   }
 });
 

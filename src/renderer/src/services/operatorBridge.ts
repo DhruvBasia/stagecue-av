@@ -18,8 +18,11 @@ import { useMediaStore } from '../store/useMediaStore';
 import { usePrefsStore } from '../store/usePrefsStore';
 import { useShowStore } from '../store/useShowStore';
 import { useStageStore } from '../store/useStageStore';
+import { useOnAirStore } from '../store/useOnAirStore';
+import { useUpdateStore } from '../store/useUpdateStore';
 import { useWebStore } from '../store/useWebStore';
 import { sortCues } from './cueManager';
+import { DEFAULT_ON_AIR } from './onAir';
 import { livePaging } from './paging';
 import { describeFollow, followSecondsLeft } from './followEngine';
 import { HotkeyManager, type HotkeyAction } from './hotkeyManager';
@@ -50,7 +53,8 @@ export function currentShowSnapshot(): ShowFile {
     folders: useMediaStore.getState().folders,
     settings: { autoFollowEnabled: useStageStore.getState().autoFollowEnabled },
     audioOutput: useAudioStore.getState().outputPref,
-    driveSources: useDriveStore.getState().sources
+    driveSources: useDriveStore.getState().sources,
+    onAir: useOnAirStore.getState().settings()
   });
 }
 
@@ -254,6 +258,35 @@ function backdropKindLabel(item: MediaItem): string {
   }
 }
 
+/**
+ * Saves a web flipbook as a PDF booklet that plays without internet, and adds a
+ * booklet cue for it (unless one already uses its pages).
+ */
+export async function saveWebPageOffline(item: MediaItem): Promise<void> {
+  const result = await useMediaStore.getState().makeOfflineCopy(item);
+  if (!result || result.pages.length === 0) return;
+  const pageIds = new Set(result.pages.map((p) => p.id));
+  const stage = useStageStore.getState();
+  const cueName = `${item.name} (offline)`;
+  const hasCue = stage.cues.some((c) => c.backdropMediaId !== undefined && pageIds.has(c.backdropMediaId));
+  if (!hasCue) {
+    stage.addCue({
+      label: cueName,
+      backdropMediaId: result.pages[0].id,
+      transition: 'dissolve',
+      notes: 'Offline copy of the web page: turn pages with ◀ ▶, [ ], the clicker or the crew phones.'
+    });
+  }
+  useShowStore
+    .getState()
+    .pushAlert(
+      'success',
+      `Offline copy ready: ${item.name} (${result.pages.length} page${result.pages.length === 1 ? '' : 's'})`,
+      `${hasCue ? 'Its pages were updated.' : `Cue “${cueName}” was added.`} It plays without internet; the PDF is in Documents\\StageCue Offline.`,
+      false
+    );
+}
+
 /** Cue list for phones/tablets (with the library's small JPEG thumbnails). */
 export function buildRemoteCues(): RemoteCue[] {
   const items = new Map(useMediaStore.getState().items.map((i) => [i.id, i] as const));
@@ -308,7 +341,8 @@ export function buildRemoteStatus(now: number = Date.now()): RemoteStatus {
     autoFollowEnabled: stage.autoFollowEnabled,
     followCountdown: followSecondsLeft(stage.pendingFollow, now),
     projector: stage.displayStatus ? stage.displayStatus.mode : null,
-    paging: currentPaging()
+    paging: currentPaging(),
+    timer: useOnAirStore.getState().remoteTimer(now)
   };
 }
 
@@ -453,6 +487,7 @@ export async function applyShow(show: ShowFile, filePath: string | null, baseDir
   useAudioStore.getState().applyMix(show.audio, false);
   useAudioStore.getState().applyOutputPref(show.audioOutput ?? null);
   useDriveStore.getState().loadSources(show.driveSources ?? []);
+  useOnAirStore.getState().loadSettings(show.onAir ?? DEFAULT_ON_AIR);
   useShowStore.getState().loadedShow(show.name, filePath, filePath === null);
   // Fetch any performer tracks uploaded since the show was saved (runs in the background).
   if ((show.driveSources ?? []).length > 0) void useDriveStore.getState().syncAll('open');
@@ -506,6 +541,7 @@ export function newShow(): void {
   useStageStore.getState().cancelFollow();
   useStageStore.getState().setAutoFollow(true, false);
   useDriveStore.getState().loadSources([]);
+  useOnAirStore.getState().loadSettings(DEFAULT_ON_AIR);
   show.resetShow();
   clearAutosave();
 }
@@ -580,6 +616,21 @@ export function useOperatorBridge(): void {
         }
       }),
       api.on('drive:progress', (progress) => useDriveStore.getState().setProgress(progress)),
+      api.on('web:offline-progress', (progress) => useMediaStore.getState().setOfflineProgress(progress)),
+      api.on('app:update-status', (status) => {
+        const before = useUpdateStore.getState().status?.state;
+        useUpdateStore.getState().setStatus(status);
+        if (status.state === 'ready' && before !== 'ready') {
+          useShowStore
+            .getState()
+            .pushAlert(
+              'success',
+              `StageCue ${status.version ?? ''} is ready to install`,
+              'It installs when you close StageCue, or press “Restart to update” in the header after the show.',
+              false
+            );
+        }
+      }),
       api.on('web:frame', (frame) => {
         const before = useWebStore.getState().frame?.page ?? null;
         useWebStore.getState().handleFrame(frame);
@@ -643,6 +694,20 @@ export function useOperatorBridge(): void {
       if (state.sources !== prev.sources) scheduleAutosave();
     });
     const unsubRemoteStage = useStageStore.subscribe(queueRemoteStatus);
+
+    // Captions, countdown and speaker timer: mirrored to the projector on every change,
+    // to the podium phones through the status, and saved with the show.
+    let lastOverlaysJson = '';
+    const unsubOnAir = useOnAirStore.subscribe((state, prev) => {
+      const overlays = state.overlays();
+      const json = JSON.stringify(overlays);
+      if (json !== lastOverlaysJson) {
+        lastOverlaysJson = json;
+        api.send('stage:overlays', overlays);
+      }
+      if (state.timer !== prev.timer) queueRemoteStatus();
+      if (state.captions !== prev.captions || state.captionStyle !== prev.captionStyle) scheduleAutosave();
+    });
     const unsubRemoteAudio = useAudioStore.subscribe((state, prev) => {
       if (state.telemetry?.isBgMusicPlaying !== prev.telemetry?.isBgMusicPlaying) queueRemoteStatus();
     });
@@ -731,6 +796,7 @@ export function useOperatorBridge(): void {
       unsubCues();
       unsubMedia();
       unsubRemoteStage();
+      unsubOnAir();
       unsubRemoteAudio();
       unsubRemoteCues();
       unsubRemoteMedia();

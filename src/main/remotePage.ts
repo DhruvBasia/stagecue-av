@@ -57,6 +57,16 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
   .hidden { display: none !important; }
   .pagelabel { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-weight: 900; font-size: 15px; font-variant-numeric: tabular-nums; border: 2px dashed var(--border); border-radius: 12px; }
   .pagelabel small { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: var(--muted); }
+  /* Podium screen (?view=timer): one huge speaker timer, nothing else. */
+  .podium { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; padding: 3vh 3vw; text-align: center; }
+  .pd-speaker { font-size: clamp(16px, 4.5vh, 48px); font-weight: 700; color: var(--muted); max-width: 95vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pd-time { font-size: min(30vw, 50vh); font-weight: 900; line-height: .9; font-variant-numeric: tabular-nums; letter-spacing: -.02em; color: var(--green); }
+  .pd-time.warn { color: var(--amber); } .pd-time.over { color: var(--red); }
+  .pd-msg { font-size: clamp(22px, 9vh, 120px); font-weight: 900; letter-spacing: .06em; color: #000; background: var(--amber); padding: .1em .5em; border-radius: .2em; }
+  .pd-msg:empty { display: none; }
+  .pd-foot { position: fixed; bottom: 2vh; font-size: 12px; color: var(--dim); }
+  .podium.over { animation: pd-flash 1s steps(2) infinite; }
+  @keyframes pd-flash { 50% { background: #3b0a0a; } }
   .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--panel); border-radius: 10px; padding: 4px; }
   .tabs button { border: 0; background: transparent; min-height: 38px; font-weight: 800; font-size: 13px; letter-spacing: .06em; color: var(--muted); border-radius: 8px; position: relative; }
   .tabs button.sel { background: var(--raised); color: var(--text); }
@@ -166,6 +176,12 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
   <input id="nameInput" maxlength="32" placeholder="Your name / position" autocomplete="off">
   <div class="btns"><button type="button" id="nameSkip">Skip</button><button type="button" class="play" id="nameSave">CONTINUE</button></div>
 </div></div>
+<div id="podium" class="podium hidden" data-testid="podium">
+  <div class="pd-speaker" id="pdSpeaker"></div>
+  <div class="pd-time" id="pdTime">--:--</div>
+  <div class="pd-msg" id="pdMsg"></div>
+  <div class="pd-foot" id="pdFoot">Waiting for the AV room…</div>
+</div>
 <div id="toast"></div>
 <script>
 (function () {
@@ -177,6 +193,43 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
   var ws = null, retry = 500, pingTimer = null, revoked = false, pending = {}, confirmCue = null, toastTimer = null;
   var myName = '';
   try { myName = localStorage.getItem(NAME_KEY) || ''; } catch (e) { myName = ''; }
+  // Podium screen: a big speaker timer for the person at the microphone.
+  var podium = new URLSearchParams(location.search).get('view') === 'timer';
+  var timerBase = null;
+  if (podium) myName = 'Podium screen';
+
+  function fmtClock(ms) {
+    var over = ms < 0, total = over ? Math.floor(-ms / 1000) : Math.ceil(ms / 1000);
+    var h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    var body = h > 0 ? h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s : m + ':' + (s < 10 ? '0' : '') + s;
+    return over ? '+' + body : body;
+  }
+  function timerLeft() {
+    if (!timerBase) return null;
+    return timerBase.running ? timerBase.remainingMs - (Date.now() - timerBase.receivedAt) : timerBase.remainingMs;
+  }
+  function renderPodium() {
+    if (!podium) return;
+    var t = timerBase, left = timerLeft();
+    var time = $('pdTime');
+    if (!t || left === null) {
+      time.textContent = '--:--'; time.className = 'pd-time'; $('pdSpeaker').textContent = ''; $('pdMsg').textContent = '';
+      $('podium').className = 'podium';
+      $('pdFoot').textContent = st.connected ? 'Waiting for the AV room to start the timer…' : 'Connecting to StageCue…';
+      return;
+    }
+    var tone = left < 0 ? 'over' : left <= t.warnMs ? 'warn' : 'ok';
+    time.textContent = fmtClock(left);
+    time.className = 'pd-time' + (tone === 'ok' ? '' : ' ' + tone);
+    $('pdSpeaker').textContent = t.speaker || '';
+    $('pdMsg').textContent = t.message || '';
+    $('podium').className = 'podium' + (tone === 'over' ? ' over' : '');
+    $('pdFoot').textContent = st.connected ? (t.running ? '' : 'PAUSED') : 'Connection lost: showing the last known time';
+  }
+  function keepAwake() {
+    if (!podium || !navigator.wakeLock) return;
+    navigator.wakeLock.request('screen').catch(function () { /* the phone may still dim; set its screen timeout */ });
+  }
 
   function safeThumb(url) { return typeof url === 'string' && /^data:image\\/(jpeg|png);base64,[A-Za-z0-9+\\/=]+$/.test(url) ? url : null; }
   function fmt(s) { if (s == null || !isFinite(s)) return ''; s = Math.max(0, Math.floor(s)); var m = Math.floor(s / 60), r = s % 60; return m + ':' + (r < 10 ? '0' : '') + r; }
@@ -254,6 +307,7 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
     if (s.isBlackout) chips.appendChild(el('span', 'chip black', 'BLACKOUT'));
     if (s.projector && s.projector !== 'projector') chips.appendChild(el('span', 'chip warn', 'NO PROJECTOR'));
     if (s.followCountdown != null) chips.appendChild(el('span', 'chip warn', 'NEXT IN ' + Math.ceil(s.followCountdown) + 's'));
+    if (s.timer) chips.appendChild(el('span', 'chip ' + (s.timer.remainingMs < 0 ? 'black' : 'warn'), 'SPEAKER ' + fmtClock(s.timer.remainingMs) + (s.timer.message ? ' · ' + s.timer.message : '')));
   }
 
   function renderCues() {
@@ -326,7 +380,11 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
     switch (msg.type) {
       case 'hello': st.role = msg.role; st.clientId = msg.clientId; st.perms = msg.permissions || {}; st.locked = !!msg.locked; renderHeader(); renderStatus(); break;
       case 'access': st.perms = msg.permissions || {}; st.locked = !!msg.locked; renderHeader(); toast(st.locked ? 'AV room locked the controls' : 'Controls updated by AV room', !st.locked); break;
-      case 'status': st.status = msg.status; renderStatus(); renderCues(); break;
+      case 'status':
+        st.status = msg.status;
+        var t = msg.status && msg.status.timer;
+        timerBase = t ? { remainingMs: t.remainingMs, running: !!t.running, warnMs: t.warnMs || 0, speaker: t.speaker || '', message: t.message || null, receivedAt: Date.now() } : null;
+        renderStatus(); renderCues(); renderPodium(); break;
       case 'cues': st.cues = msg.cues || []; renderCues(); renderStatus(); break;
       case 'history': st.messages = msg.messages || []; renderFeed(); break;
       case 'message':
@@ -390,7 +448,16 @@ export const REMOTE_PAGE_HTML = `<!doctype html>
   $('nameInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') saveName($('nameInput').value); });
 
   renderHeader(); renderCues(); renderFeed();
-  if (!myName) askName();
+  if (podium) {
+    $('app').classList.add('hidden');
+    $('podium').classList.remove('hidden');
+    setInterval(renderPodium, 200);
+    keepAwake();
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') keepAwake(); });
+    renderPodium();
+  } else if (!myName) {
+    askName();
+  }
   connect();
 })();
 </script>

@@ -4,6 +4,8 @@ import type { CueItem, MediaItem } from '../../types';
 import { getVisibleView, isBackdropCapable, isForegroundCapable } from '../../services/cueManager';
 import { formatTime } from '../../services/utils';
 import { useMediaStore } from '../../store/useMediaStore';
+import { useOnAirStore } from '../../store/useOnAirStore';
+import { StageOverlays } from '../stage/StageOverlays';
 import { useStageStore } from '../../store/useStageStore';
 import { Button } from '../common/Button';
 import { PageControls, WebRemoteView } from './PageControls';
@@ -360,6 +362,15 @@ function ProgramTransport(): JSX.Element {
   );
 }
 
+/** Captions, countdown and corner timer exactly as the projector draws them. */
+function ProgramOverlays(): JSX.Element {
+  useOnAirStore((s) => s.liveCaption);
+  useOnAirStore((s) => s.captionStyle);
+  useOnAirStore((s) => s.countdown);
+  useOnAirStore((s) => s.timer);
+  return <StageOverlays overlays={useOnAirStore.getState().overlays()} />;
+}
+
 function ProgramMonitor(): JSX.Element {
   const program = useStageStore((s) => s.program);
   const telemetry = useStageStore((s) => s.telemetry);
@@ -401,6 +412,7 @@ function ProgramMonitor(): JSX.Element {
           <MirrorVideo media={view.foreground} time={time} playing={playing} />
         </div>
       ) : null}
+      <ProgramOverlays />
       {program.isBlackout ? (
         <div className="absolute inset-0 flex items-center justify-center bg-black/85" data-testid="program-blackout">
           <span className="flex items-center gap-1.5 rounded bg-av-red px-2 py-1 text-xs font-black tracking-widest text-av-bg">

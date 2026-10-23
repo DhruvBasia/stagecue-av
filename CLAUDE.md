@@ -30,14 +30,26 @@ Work through these in order, and verify each step before moving on.
 | | |
 | --- | --- |
 | `npm run typecheck` | Strict TS for main/preload (`tsconfig.node.json`) and renderer (`tsconfig.json`) |
-| `npm test` | Vitest unit suite: 162 tests, including relay and tunnel tests against a local relay |
-| `npm run test:e2e` | Builds, then runs 19 Playwright tests that drive the real two-window app (opens windows) |
+| `npm test` | Vitest unit suite: 174 tests, including relay and tunnel tests against a local relay |
+| `npm run test:e2e` | Builds, then runs 21 Playwright tests that drive the real two-window app (opens windows) |
 | `$env:STAGECUE_E2E_EXECUTABLE="<path>\StageCue AV.exe"; npx playwright test` | Same suite against an **installed** build, with throwaway app data |
 | `$env:STAGECUE_E2E_REAL_TUNNEL="1"` | Adds the opt-in test through a real Cloudflare tunnel (needs cloudflared + internet) |
 | `$env:STAGECUE_E2E_REAL_WEB="1"` | Adds the opt-in test that opens the real Netted Bytes flipbook and turns its pages |
 | `npm run build` | Typecheck, then bundle, then the NSIS installer in `release/<version>/` |
 
 Before calling a setup "working", run the typecheck, `npm test`, `npm run test:e2e`, and `relay/check.js` against any deployed relay.
+
+## Releasing a new version (installed apps update themselves)
+
+The source repo (`DhruvBasia/stagecue-av`) is private. Installers go to the **public** repo `DhruvBasia/stagecue-av-releases`, where installed StageCue apps look for updates (`build.publish` in `package.json`, electron-updater in `src/main/updater.ts`).
+
+1. Bump the version: `npm.cmd version X.Y.Z --no-git-tag-version`.
+2. Run the typecheck, `npm test` and `npm run test:e2e`, then `npm.cmd run build`. This gives `release/X.Y.Z/StageCue-AV-Setup-X.Y.Z.exe`, `.exe.blockmap` and `latest.yml`.
+3. Commit and push the source.
+4. Publish **all three files** with: `gh release create vX.Y.Z <exe> <blockmap> <latest.yml> --repo DhruvBasia/stagecue-av-releases --title "StageCue AV X.Y.Z" --notes "…"`. Without `latest.yml`, apps cannot see the update.
+5. Optionally, also make a source release in the private repo.
+
+Installed apps pick the update up within a few hours (or with Settings → Updates → Check now). It installs when StageCue is closed, or with *Restart to update*; it never restarts StageCue by itself.
 
 ## Windows gotchas (already solved; don't re-debug)
 

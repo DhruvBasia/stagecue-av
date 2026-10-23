@@ -8,7 +8,7 @@ Built with **Electron 31 · React 18 · TypeScript · Zustand · Tailwind CSS ·
 
 ## Install (AV laptop, Windows 10/11)
 
-1. Download **StageCue-AV-Setup-x.y.z.exe** from the repo's [Releases](https://github.com/DhruvBasia/stagecue-av/releases) page. The repo is private, so you need to be invited as a collaborator.
+1. Download **StageCue-AV-Setup-x.y.z.exe** from [stagecue-av-releases](https://github.com/DhruvBasia/stagecue-av-releases/releases/latest). It's public and needs no GitHub login. After the first install, StageCue updates itself.
 2. Run it. The installer isn't code-signed yet, so Windows SmartScreen may say *"Windows protected your PC"*. Click **More info → Run anyway**. It installs for your user only, with no admin rights needed, and adds a desktop shortcut.
 3. **For crew phones on any network or mobile data**, install Cloudflare's tunnel once (free, no account needed):
    ```bash
@@ -94,9 +94,25 @@ A souvenir booklet, a slide deck or the annual magazine is **one cue whose pages
   - ⤢ opens a bigger live view;
   - freeze (F8) holds a still of the page while you keep flipping underneath.
 
-  Web pages need internet during the show. The pre-show check opens every address, so keep a PDF of the magazine as a backup.
+  Web pages need internet during the show, so make an **offline copy**: hover the web page in the library → **Offline**. StageCue opens the flipbook out of sight at projector size, turns through every page and saves each view into a PDF in *Documents\StageCue Offline*. It's added as a booklet cue "*name* (offline)" that plays without internet. The Netted Bytes magazine takes about a minute and gives 18 full-screen spreads. Running Offline again later refreshes the same pages. The pre-show check also opens every web address.
 - **Window / screen**: go to Library → **Live** → **Window / screen**, then pick any app window (a browser, Canva, a scoreboard) or a whole screen. The audience sees it live while you work in it on the laptop. If the app was restarted, StageCue finds the window again by its title.
 - **Turning pages**: use the buttons, **[ / ]** on the keyboard, the **clicker** (PgDn/→ next page, PgUp/← previous; after the last page the clicker moves on to the next cue), or a crew phone (◀ PAGE / PAGE ▶ appear while a booklet is live, allowed with *GO / play cues*). Use **Space** to go on to the next cue at any time.
+
+### On air: speaker timer, name captions, countdown
+The **On air** card sits in the right column. Its captions, countdown and timer are drawn on the projector over the picture (and over a freeze, but under the blackout). The Program monitor shows them exactly as the audience sees them.
+
+- **Timer**: a countdown for each speaker.
+  - Pick a length (3 / 5 / 7 / 10 / 15 min or any number) and type the speaker's name, then press **Start**. Use **+1m** to add time.
+  - Send **WRAP UP / 1 MINUTE / TIME UP** signals to the speaker.
+  - The **podium screen** is a phone or tablet facing the speaker, opened from the *Podium timer* QR code (Settings → Crew remote). It shows only a huge timer: green, then amber in the last minute, then flashing red and counting up when the speaker is over time. It stays awake and keeps counting through Wi-Fi drops.
+  - *On projector* also puts a small timer in a corner of the projector.
+- **Captions**: name captions (lower thirds), such as "Prof. Mahesh Verma · Vice Chancellor".
+  - Prepare the list once (it's saved with the show), then **Show / Hide** them live. There are two styles, *Bar* and *Glass*.
+  - A cue can also bring its own caption (cue editor → *Name caption on TAKE*). It slides in with the cue and disappears after 10 s.
+- **Countdown**: "The event begins in 4:59", full screen over the backdrop, for before the doors open. It hides itself at 0:00, or you can leave it on screen.
+
+### Updates
+StageCue checks for new versions in the background (shortly after it starts, then every few hours) and downloads them quietly. **It never restarts during a show.** The update installs the next time you close StageCue, or right away with **Restart to update** in the header (or Settings → Updates). Installers are published in the public [stagecue-av-releases](https://github.com/DhruvBasia/stagecue-av-releases/releases) repo; the source stays private.
 
 ### Cue tracking rules
 | Cue field | If set | If empty |
@@ -207,8 +223,8 @@ Shows save as `*.stagecue.json`. Each file stores absolute **and** show-relative
 ## Tests
 
 ```bash
-npm test           # 162 unit tests
-npm run test:e2e   # 19 Playwright Electron tests (opens real windows), plus 2 opt-in internet tests
+npm test           # 174 unit tests
+npm run test:e2e   # 21 Playwright Electron tests (opens real windows), plus 2 opt-in internet tests
 ```
 
 Testing an installed build (e.g. a release downloaded from GitHub) with throwaway app data, plus the opt-in real-internet tunnel test:

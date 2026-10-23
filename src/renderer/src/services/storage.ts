@@ -7,6 +7,7 @@ import {
   type FollowMode,
   type MediaItem,
   type MediaType,
+  type OnAirSettings,
   type ShowFile,
   type ShowOpenResult,
   type ShowSaveResult,
@@ -16,6 +17,7 @@ import {
 } from '../types';
 import { DEFAULT_MIX, normalizeMix } from './audioEngine';
 import { clampTransitionDuration, renumberCues } from './cueManager';
+import { parseCaption, parseOnAir } from './onAir';
 import { clamp } from './utils';
 
 /* =========================================================================
@@ -40,6 +42,7 @@ export interface ShowSnapshotInput {
   settings?: ShowSettings;
   audioOutput?: AudioOutputPref | null;
   driveSources?: readonly DriveSource[];
+  onAir?: OnAirSettings;
 }
 
 export function serializeShow(input: ShowSnapshotInput, now: Date = new Date()): ShowFile {
@@ -62,7 +65,8 @@ export function serializeShow(input: ShowSnapshotInput, now: Date = new Date()):
     folders: [...(input.folders ?? [])],
     settings: { autoFollowEnabled: input.settings ? input.settings.autoFollowEnabled : true },
     audioOutput: input.audioOutput ? { ...input.audioOutput } : null,
-    driveSources: (input.driveSources ?? []).map((s) => ({ ...s }))
+    driveSources: (input.driveSources ?? []).map((s) => ({ ...s })),
+    onAir: parseOnAir(input.onAir)
   };
 }
 
@@ -183,7 +187,8 @@ export function parseCue(raw: unknown, index: number, mediaIds: ReadonlySet<stri
     notes: optionalString(raw.notes),
     followMode: FOLLOW_MODES.includes(raw.followMode as FollowMode) ? (raw.followMode as FollowMode) : 'off',
     followDelaySec: clamp(numberOr(raw.followDelaySec, 10), 1, 3600),
-    followTargetId: optionalString(raw.followTargetId)
+    followTargetId: optionalString(raw.followTargetId),
+    caption: parseCaption(raw.caption)
   };
 }
 
@@ -287,7 +292,8 @@ export function parseShowFile(text: string): ShowFile {
     folders: parseFolders(raw.folders),
     settings: parseSettings(raw.settings),
     audioOutput: parseAudioOutput(raw.audioOutput),
-    driveSources: parseDriveSources(raw.driveSources)
+    driveSources: parseDriveSources(raw.driveSources),
+    onAir: parseOnAir(raw.onAir)
   };
 }
 

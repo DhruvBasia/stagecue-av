@@ -5,6 +5,7 @@ import type {
   FolderScanResult,
   MediaItem,
   MediaType,
+  OfflineCopyProgress,
   PdfPageRef,
   ResolvedMediaFile
 } from '../types';
@@ -66,6 +67,12 @@ export interface MediaStoreState {
   addCapture: (source: CaptureSourceInfo) => MediaItem;
   /** Replaces a placeholder thumbnail with a real picture (e.g. the first live frame of a web page). */
   setThumbnail: (id: string, thumbnailUrl: string) => void;
+  /**
+   * Saves a web flipbook as a PDF booklet (works without internet) and imports
+   * its pages. Re-making a copy refreshes the existing pages in place.
+   */
+  makeOfflineCopy: (item: MediaItem) => Promise<{ pages: MediaItem[] } | null>;
+  setOfflineProgress: (progress: OfflineCopyProgress) => void;
   importFolderFromDialog: () => Promise<FolderImportOutcome | null>;
   /** quiet: no success banner (used by background Drive syncs, which report on their own). */
   rescanFolder: (folderPath: string, options?: { quiet?: boolean }) => Promise<FolderImportOutcome | null>;
@@ -386,6 +393,72 @@ export const useMediaStore = create<MediaStoreState>((set, get) => {
 
     setThumbnail: (id, thumbnailUrl) => {
       set((state) => ({ items: state.items.map((i) => (i.id === id ? { ...i, thumbnailUrl } : i)) }));
+    },
+
+    setOfflineProgress: (progress) => {
+      const key = `offline:${progress.mediaId}`;
+      if (!get().pdfJobs[key]) return;
+      const name = get().getById(progress.mediaId)?.name ?? 'web page';
+      const label =
+        progress.phase === 'loading'
+          ? `Opening ${name}…`
+          : progress.phase === 'saving'
+            ? `Saving ${name} as PDF…`
+            : `Turning the pages of ${name}`;
+      set((state) => ({ pdfJobs: { ...state.pdfJobs, [key]: { name: label, done: progress.pages, total: 0 } } }));
+    },
+
+    makeOfflineCopy: async (item) => {
+      const url = item.web?.url;
+      if (item.type !== 'web' || !url) return null;
+      const key = `offline:${item.id}`;
+      set((state) => ({ pdfJobs: { ...state.pdfJobs, [key]: { name: `Opening ${item.name}…`, done: 0, total: 0 } } }));
+      let result;
+      try {
+        result = await window.api.invoke('web:make-offline', { mediaId: item.id, url, name: item.name });
+      } catch (error) {
+        useShowStore
+          .getState()
+          .pushAlert('error', `Could not save “${item.name}” offline`, error instanceof Error ? error.message : String(error));
+        return null;
+      } finally {
+        set((state) => {
+          const { [key]: _done, ...pdfJobs } = state.pdfJobs;
+          return { pdfJobs };
+        });
+      }
+
+      let rendered: ImportCandidate[];
+      try {
+        rendered = await get().renderPdf(result.file);
+      } catch (error) {
+        useShowStore
+          .getState()
+          .pushAlert('error', `Could not open the offline copy of “${item.name}”`, error instanceof Error ? error.message : String(error));
+        return null;
+      }
+      // A copy made again: refresh the pages already in the library (cues keep pointing at them).
+      const sourceKey = mediaPathKey(result.file.filePath, platform());
+      const fresh = new Map(rendered.map((r) => [r.pdf?.page ?? 0, r] as const));
+      set((state) => ({
+        items: state.items.map((existing) => {
+          if (!existing.pdf || mediaPathKey(existing.pdf.sourcePath, platform()) !== sourceKey) return existing;
+          const page = fresh.get(existing.pdf.page);
+          if (!page || !page.pdf) return { ...existing, missing: true };
+          const refreshed: MediaItem = { ...existing, filePath: page.filePath, fileUrl: page.fileUrl, missing: false, pdf: { ...page.pdf } };
+          delete refreshed.thumbnailUrl;
+          return refreshed;
+        })
+      }));
+      get()
+        .items.filter((i) => i.pdf && mediaPathKey(i.pdf.sourcePath, platform()) === sourceKey && !i.missing)
+        .forEach(probe);
+      get().importFiles(rendered);
+      const pages = get()
+        .items.filter((i) => i.pdf && mediaPathKey(i.pdf.sourcePath, platform()) === sourceKey && !i.missing)
+        .sort((a, b) => (a.pdf?.page ?? 0) - (b.pdf?.page ?? 0));
+      useShowStore.getState().markDirty();
+      return { pages };
     },
 
     importResolved: async (files) => {

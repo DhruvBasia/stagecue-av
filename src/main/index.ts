@@ -20,6 +20,7 @@ import {
 import { registerIpcHandlers, sendToWindow } from './ipcHandlers';
 import { registerMediaProtocol, registerMediaSchemePrivileges } from './protocolHandler';
 import { RemoteServer } from './remoteServer';
+import { AppUpdater, type UpdaterLike } from './updater';
 import { configureWebSession, hardenGuest, sanitizeWebview, WebStageController } from './webStage';
 
 /* ------------------------------------------------------------------------ */
@@ -47,6 +48,21 @@ let quitPromptOpen = false;
 let stageRecreateTimer: ReturnType<typeof setTimeout> | null = null;
 let remoteServer: RemoteServer = new RemoteServer({ onAction: () => undefined, onMessage: () => undefined });
 const webStage = new WebStageController({ sendFrame: (frame) => sendToWindow(operatorWindow, 'web:frame', frame) });
+// Self-update only in the installed app (tests can opt in to exercise it against the real releases).
+const appUpdater = new AppUpdater({
+  currentVersion: app.getVersion(),
+  enabled: app.isPackaged && (!isE2E || process.env.STAGECUE_E2E_UPDATER === '1'),
+  loadUpdater: async () => {
+    const mod = (await import('electron-updater')) as unknown as { autoUpdater?: UpdaterLike; default?: { autoUpdater: UpdaterLike } };
+    const updater = mod.autoUpdater ?? mod.default?.autoUpdater;
+    if (!updater) throw new Error('Updater unavailable');
+    return updater;
+  },
+  onStatus: (status) => sendToWindow(operatorWindow, 'app:update-status', status),
+  onBeforeInstall: () => {
+    quitConfirmed = true;
+  }
+});
 
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                    */
@@ -187,6 +203,7 @@ function createOperatorWindow(manager: DisplayManager): BrowserWindow {
   });
 
   hardenWebContents(win.webContents);
+  win.webContents.on('did-finish-load', () => sendToWindow(win, 'app:update-status', appUpdater.getStatus()));
 
   win.once('ready-to-show', () => {
     if (area.width <= 1680 || area.height <= 1000) win.maximize();
@@ -434,6 +451,7 @@ async function bootstrap(): Promise<void> {
             }
           : {},
       web: webStage,
+      updater: appUpdater,
       onDirtyChange: (dirty) => {
         showDirty = dirty;
         if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.setDocumentEdited(dirty);
@@ -453,6 +471,7 @@ async function bootstrap(): Promise<void> {
   manager.start();
 
   powerBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+  appUpdater.start();
 
   app.on('activate', () => {
     if (!operatorWindow) operatorWindow = createOperatorWindow(manager);
@@ -486,6 +505,7 @@ if (!hasLock) {
     disposeIpc?.();
     void remoteServer.stop();
     webStage.stop();
+    appUpdater.stop();
     if (stageRecreateTimer !== null) clearTimeout(stageRecreateTimer);
     if (powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)) {
       powerSaveBlocker.stop(powerBlockerId);

@@ -1,6 +1,7 @@
 import {
   ClipboardCheck,
   Clock,
+  Download,
   FileDown,
   FilePlus,
   Lock,
@@ -26,6 +27,7 @@ import { usePrefsStore } from '../../store/usePrefsStore';
 import { formatClock, formatTime } from '../../services/utils';
 import { useShowStore } from '../../store/useShowStore';
 import { useStageStore } from '../../store/useStageStore';
+import { useUpdateStore } from '../../store/useUpdateStore';
 import { Button } from '../common/Button';
 
 const LINK_TIMEOUT_MS = 1500;
@@ -37,6 +39,33 @@ function useNow(intervalMs: number): number {
     return () => window.clearInterval(timer);
   }, [intervalMs]);
   return now;
+}
+
+/** Shown only while an update downloads or is ready; installing is always the operator's choice. */
+function UpdateBadge(): JSX.Element | null {
+  const status = useUpdateStore((s) => s.status);
+  const installNow = useUpdateStore((s) => s.installNow);
+  if (!status) return null;
+  if (status.state === 'downloading') {
+    return (
+      <span className="rounded-md border border-av-border px-2 py-1 font-mono text-[11px] text-av-muted" title="Downloading the new version in the background">
+        Update {status.percent ?? 0}%
+      </span>
+    );
+  }
+  if (status.state !== 'ready') return null;
+  return (
+    <Button
+      size="sm"
+      variant="success"
+      icon={<Download size={14} />}
+      onClick={() => void installNow()}
+      title="Installs when StageCue closes, or now (StageCue restarts; do it after the show)"
+      data-testid="update-ready"
+    >
+      Restart to update {status.version ? `to ${status.version}` : ''}
+    </Button>
+  );
 }
 
 function EventTimer(): JSX.Element {
@@ -304,6 +333,7 @@ export function HeaderBar(): JSX.Element {
       <StatusChips />
 
       <div className="ml-auto flex items-center gap-2">
+        <UpdateBadge />
         <EventTimer />
         <div className="flex items-center gap-1.5 rounded-md border border-av-border bg-av-bg px-2 py-1" title="Local time">
           <Clock size={14} className="text-av-muted" />

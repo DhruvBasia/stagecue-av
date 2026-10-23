@@ -147,7 +147,8 @@ const status: RemoteStatus = {
   autoFollowEnabled: true,
   followCountdown: null,
   projector: 'projector',
-  paging: { kind: 'pdf', page: 3, pageCount: 34 }
+  paging: { kind: 'pdf', page: 3, pageCount: 34 },
+  timer: { running: true, remainingMs: 95_000, durationMs: 300_000, warnMs: 60_000, speaker: 'Dr. Kamal Pathak', message: null }
 };
 
 afterEach(async () => {

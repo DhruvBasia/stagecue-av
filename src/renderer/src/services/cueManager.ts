@@ -280,7 +280,8 @@ export function createCue(input: Partial<CueItem> & { id: string }, order: numbe
     notes: input.notes,
     followMode: input.followMode ?? 'off',
     followDelaySec: clamp(input.followDelaySec ?? 10, 1, 3600),
-    followTargetId: input.followTargetId
+    followTargetId: input.followTargetId,
+    caption: input.caption?.title.trim() ? { title: input.caption.title.trim(), subtitle: input.caption.subtitle.trim() } : undefined
   };
 }
 

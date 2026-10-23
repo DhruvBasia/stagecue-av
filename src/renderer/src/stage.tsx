@@ -1,22 +1,25 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type {
-  AudioCommand,
-  AudioOutputDevice,
-  BlackoutPayload,
-  FreezeRequest,
-  MediaItem,
-  MediaLayer,
-  StageCuePayload,
-  StageMode,
-  StageSyncSnapshot,
-  StageWebLivePayload,
-  UnfreezeRequest
+import {
+  NO_OVERLAYS,
+  type AudioCommand,
+  type AudioOutputDevice,
+  type BlackoutPayload,
+  type FreezeRequest,
+  type MediaItem,
+  type MediaLayer,
+  type StageCuePayload,
+  type StageMode,
+  type StageOverlays as StageOverlaysState,
+  type StageSyncSnapshot,
+  type StageWebLivePayload,
+  type UnfreezeRequest
 } from './types';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { StageBackdrop, type StageBackdropHandle } from './components/stage/StageBackdrop';
 import { StageBlackout } from './components/stage/StageBlackout';
 import { StageFreezeLayer, type StageFreezeHandle } from './components/stage/StageFreezeLayer';
+import { StageOverlays } from './components/stage/StageOverlays';
 import { StageVideoPlayer, type StageVideoHandle } from './components/stage/StageVideoPlayer';
 import { ReadyTracker, type CaptureSource } from './components/stage/readyTracker';
 import { AudioEngine } from './services/audioEngine';
@@ -159,6 +162,7 @@ function StageApp(): JSX.Element {
   cueRef.current = cue;
 
   const [blackout, setBlackout] = useState<BlackoutPayload>({ active: false, fadeMs: 0 });
+  const [overlays, setOverlays] = useState<StageOverlaysState>(NO_OVERLAYS);
   const blackoutRef = useRef(blackout);
   blackoutRef.current = blackout;
 
@@ -257,6 +261,7 @@ function StageApp(): JSX.Element {
       releaseFreeze(0, Date.now());
       setCue(snapshot.cue ? { ...snapshot.cue } : null);
       setBlackout({ active: snapshot.isBlackout, fadeMs: 0 });
+      setOverlays(snapshot.overlays);
       engine.setMix(snapshot.mix);
       if (engine.getSinkId() !== snapshot.outputDeviceId) void applyAudioOutput(snapshot.outputDeviceId);
       if (snapshot.music) {
@@ -300,6 +305,7 @@ function StageApp(): JSX.Element {
       }),
       api.on('stage:video-control', (control) => videoRef.current?.control(control)),
       api.on('stage:full-sync', handleFullSync),
+      api.on('stage:overlays', (payload) => setOverlays(payload)),
       api.on('audio:command', runAudioCommand),
       api.on('display:changed', (status) => setDisplayMode(status.mode))
     ];
@@ -408,6 +414,7 @@ function StageApp(): JSX.Element {
         onError={handleVideoError}
       />
       <StageFreezeLayer ref={freezeRef} defaultReleaseMs={UNFREEZE_FADE_MS} />
+      <StageOverlays overlays={overlays} />
       <StageBlackout active={blackout.active} fadeMs={blackout.fadeMs} />
       {displayMode && !projector ? (
         <div

@@ -117,7 +117,10 @@ export function CueEditor({ cueId, onClose }: CueEditorProps): JSX.Element | nul
       ...draft,
       label: draft.label.trim() || `Cue ${draft.order}`,
       transitionDurationMs: clampTransitionDuration(draft.transition, draft.transitionDurationMs),
-      notes: draft.notes?.trim() ? draft.notes.trim() : undefined
+      notes: draft.notes?.trim() ? draft.notes.trim() : undefined,
+      caption: draft.caption?.title.trim()
+        ? { title: draft.caption.title.trim(), subtitle: draft.caption.subtitle.trim() }
+        : undefined
     });
     onClose();
   };
@@ -336,6 +339,29 @@ export function CueEditor({ cueId, onClose }: CueEditorProps): JSX.Element | nul
             <p className="text-[11px] text-av-dim">
               Runs only while AUTO-FOLLOW is ON; pauses during freeze and blackout. Pick an earlier cue to loop a sponsor slideshow.
             </p>
+          </div>
+        </Field>
+
+        <Field label="Name caption on TAKE (optional, hides after 10 s)">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              value={draft.caption?.title ?? ''}
+              onChange={(event) => patch({ caption: { title: event.target.value, subtitle: draft.caption?.subtitle ?? '' } })}
+              maxLength={80}
+              placeholder="Prof. Mahesh Verma"
+              aria-label="Caption name"
+              className="h-9 rounded-md border border-av-border bg-av-bg px-2.5 text-sm text-av-text focus:border-av-blue focus:outline-none"
+              data-testid="cue-caption-title"
+            />
+            <input
+              value={draft.caption?.subtitle ?? ''}
+              onChange={(event) => patch({ caption: { title: draft.caption?.title ?? '', subtitle: event.target.value } })}
+              maxLength={120}
+              placeholder="Vice Chancellor"
+              aria-label="Caption role"
+              className="h-9 rounded-md border border-av-border bg-av-bg px-2.5 text-sm text-av-text focus:border-av-blue focus:outline-none"
+              data-testid="cue-caption-subtitle"
+            />
           </div>
         </Field>
 

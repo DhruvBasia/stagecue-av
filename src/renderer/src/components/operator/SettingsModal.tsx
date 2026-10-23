@@ -1,7 +1,8 @@
 import qrcode from 'qrcode-generator';
-import { Copy, Globe, Keyboard, Lock, RefreshCw, Smartphone, Volume2, Wifi, Workflow } from 'lucide-react';
+import { Copy, Download, Globe, Keyboard, Lock, RefreshCw, Smartphone, Volume2, Wifi, Workflow } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import type { InternetState, RemoteLink, RemoteRole, StageTeamPermissions } from '../../types';
+import type { InternetState, RemoteLink, RemoteRole, StageTeamPermissions, UpdateStatus } from '../../types';
+import { useUpdateStore } from '../../store/useUpdateStore';
 import { DEFAULT_BINDINGS } from '../../services/hotkeyManager';
 import { useAudioStore } from '../../store/useAudioStore';
 import { DEFAULT_REMOTE_PORT, usePrefsStore } from '../../store/usePrefsStore';
@@ -325,6 +326,98 @@ function RoleLinks({ role, links }: { role: RemoteRole; links: RemoteLink[] }): 
   );
 }
 
+function updateText(status: UpdateStatus | null): string {
+  if (!status) return 'Checking the version…';
+  switch (status.state) {
+    case 'unsupported':
+      return 'Updates run in the installed app (this is a development build).';
+    case 'idle':
+      return 'Checks for a new version shortly after start, then every few hours.';
+    case 'checking':
+      return 'Checking for a new version…';
+    case 'up-to-date':
+      return 'You have the latest version.';
+    case 'downloading':
+      return `Downloading ${status.version ?? 'the new version'} in the background… ${status.percent ?? 0}%`;
+    case 'ready':
+      return `Version ${status.version ?? ''} is ready. It installs when you close StageCue, or now with “Restart to update”.`;
+    case 'error':
+      return `Could not check for updates: ${status.error ?? 'unknown error'}.`;
+    default: {
+      const exhaustive: never = status.state;
+      return exhaustive;
+    }
+  }
+}
+
+function UpdateSection(): JSX.Element {
+  const status = useUpdateStore((s) => s.status);
+  const checkNow = useUpdateStore((s) => s.checkNow);
+  const installNow = useUpdateStore((s) => s.installNow);
+  const busy = status?.state === 'checking' || status?.state === 'downloading';
+  return (
+    <Section
+      icon={<Download size={18} />}
+      title={`Updates · StageCue ${status?.currentVersion ?? ''}`}
+      description="New versions download by themselves in the background and never restart StageCue during a show."
+      control={
+        status?.state === 'ready' ? (
+          <Button size="sm" variant="success" onClick={() => void installNow()} data-testid="settings-update-install">
+            Restart to update
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<RefreshCw size={13} className={busy ? 'animate-spin' : ''} />}
+            disabled={busy || status?.state === 'unsupported'}
+            onClick={() => void checkNow()}
+            data-testid="settings-update-check"
+          >
+            Check now
+          </Button>
+        )
+      }
+    >
+      <p className={`text-xs ${status?.state === 'error' ? 'text-av-amber' : 'text-av-muted'}`} data-testid="settings-update-status">
+        {updateText(status)}
+      </p>
+    </Section>
+  );
+}
+
+/** A phone or tablet on the podium showing only the big speaker timer (On air → Timer). */
+function PodiumLink({ links }: { links: RemoteLink[] }): JSX.Element | null {
+  const link = links.find((l) => l.role === 'stage');
+  if (!link) return null;
+  const url = `${link.url}&view=timer`;
+  return (
+    <div className="flex flex-wrap items-start gap-3 rounded-lg border border-av-amber/40 bg-av-amber/5 p-3" data-testid="remote-links-podium">
+      <QrCode text={url} testId="remote-qr-podium" />
+      <div className="min-w-0 flex-1 space-y-1.5 text-xs text-av-muted">
+        <div className="text-xs font-bold uppercase tracking-wider text-av-amber">Podium timer screen</div>
+        <p>
+          Open on a phone or tablet facing the speaker. It shows only the speaker timer from <em>On air → Timer</em>: big, green, amber
+          in the last minute, red when over time, plus your WRAP UP / TIME UP signals. Display only, no controls.
+        </p>
+        <div className="flex items-center gap-1">
+          <code className="min-w-0 break-all rounded bg-av-panel px-1.5 py-0.5 font-mono text-[10px] leading-snug text-av-text" data-testid="podium-url">
+            {url}
+          </code>
+          <button
+            type="button"
+            className="rounded p-1 text-av-muted hover:bg-av-raised hover:text-av-text"
+            aria-label="Copy podium link"
+            onClick={() => void navigator.clipboard.writeText(url)}
+          >
+            <Copy size={12} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NetworkHelp({ links }: { links: RemoteLink[] }): JSX.Element {
   const hasHotspot = links.some((l) => l.hotspot);
   const isWindows = window.api.platform === 'win32';
@@ -428,6 +521,7 @@ function RemoteSection(): JSX.Element {
               <RoleLinks role="stage" links={links} />
               <RoleLinks role="operator" links={links} />
             </div>
+            <PodiumLink links={links} />
 
             <div className="rounded-lg border border-av-border bg-av-panel p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -602,6 +696,7 @@ export function SettingsModal(): JSX.Element | null {
         </Section>
         <RemoteSection />
         <AudioOutputSection />
+        <UpdateSection />
       </div>
     </Modal>
   );

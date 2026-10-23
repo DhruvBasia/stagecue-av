@@ -1,5 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isCaptureResolveRequest, isWebAddress, parseWebInput, sanitizeWebview, WEB_PARTITION } from '../../src/main/webStage';
+import { bitmapDifference, buildBookletHtml, offlinePdfName, reachedEnd } from '../../src/main/webOffline';
+
+describe('offline copy of a web flipbook', () => {
+  const bitmap = (value: number, pixels = 16): Buffer => Buffer.alloc(pixels * 4, value);
+
+  it('measures how different two views are, ignoring alpha', () => {
+    expect(bitmapDifference(bitmap(10), bitmap(10))).toBe(0);
+    expect(bitmapDifference(bitmap(10), bitmap(40))).toBe(30);
+    const alphaOnly = bitmap(10);
+    for (let i = 3; i < alphaOnly.length; i += 4) alphaOnly[i] = 255;
+    expect(bitmapDifference(bitmap(10), alphaOnly)).toBe(0);
+    expect(bitmapDifference(bitmap(1, 4), bitmap(1, 8))).toBe(255);
+  });
+
+  it('stops at the last page: by the address when the site has page numbers, otherwise by the picture', () => {
+    expect(reachedEnd('https://x.dev/mag?page=17', 'https://x.dev/mag?page=18', 0)).toBe(false);
+    // The address did not move: last page, even if an animation changed the picture.
+    expect(reachedEnd('https://x.dev/mag?page=18', 'https://x.dev/mag?page=18', 40)).toBe(true);
+    expect(reachedEnd('https://x.dev/mag', 'https://x.dev/mag', 0.4)).toBe(true);
+    expect(reachedEnd('https://x.dev/mag', 'https://x.dev/mag', 25)).toBe(false);
+    // The cover has no page number yet; the first turn adds one.
+    expect(reachedEnd('https://x.dev/mag', 'https://x.dev/mag?page=2', 30)).toBe(false);
+  });
+
+  it('names the PDF safely and lays out one full-bleed page per view', () => {
+    expect(offlinePdfName('Netted Bytes')).toBe('Netted Bytes (offline copy).pdf');
+    expect(offlinePdfName('Mag: 2026/27 <final>?')).toBe('Mag 2026 27 final (offline copy).pdf');
+    expect(offlinePdfName('   ')).toBe('Web page (offline copy).pdf');
+    const html = buildBookletHtml(['C:\\tmp\\view-001.jpg', 'C:\\tmp\\view 002.jpg']);
+    expect(html).toContain('@page { size: 1920px 1080px; margin: 0; }');
+    expect(html.match(/<div class="p">/g)).toHaveLength(2);
+    expect(html).toContain('file:///C:/tmp/view%20002.jpg');
+  });
+});
 
 describe('web pages on stage: main-process guards', () => {
   it('only shows http(s) pages', () => {

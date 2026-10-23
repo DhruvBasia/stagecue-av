@@ -11,6 +11,7 @@ import { EmergencyPanel } from './components/operator/EmergencyPanel';
 import { HeaderBar } from './components/operator/HeaderBar';
 import { MediaLibrary } from './components/operator/MediaLibrary';
 import { MonitorDualDeck } from './components/operator/MonitorDualDeck';
+import { OnAirPanel } from './components/operator/OnAirPanel';
 import { PreshowCheckModal } from './components/operator/PreshowCheckModal';
 import { SessionRestoreModal } from './components/operator/SessionRestoreModal';
 import { SettingsModal } from './components/operator/SettingsModal';
@@ -22,6 +23,7 @@ import { useMediaStore } from './store/useMediaStore';
 import { usePrefsStore } from './store/usePrefsStore';
 import { useShowStore } from './store/useShowStore';
 import { useStageStore } from './store/useStageStore';
+import { useOnAirStore } from './store/useOnAirStore';
 import { useWebStore } from './store/useWebStore';
 import './styles/globals.css';
 
@@ -37,6 +39,7 @@ declare global {
       crew: typeof useCrewStore;
       drive: typeof useDriveStore;
       web: typeof useWebStore;
+      onAir: typeof useOnAirStore;
     };
   }
 }
@@ -55,6 +58,7 @@ function OperatorApp(): JSX.Element {
         </section>
         <aside className="flex min-h-0 flex-col gap-2 overflow-y-auto">
           <EmergencyPanel />
+          <OnAirPanel />
           <AudioMixerDeck />
         </aside>
       </main>
@@ -93,7 +97,8 @@ if (window.api.isE2E) {
     prefs: usePrefsStore,
     crew: useCrewStore,
     drive: useDriveStore,
-    web: useWebStore
+    web: useWebStore,
+    onAir: useOnAirStore
   };
 }
 

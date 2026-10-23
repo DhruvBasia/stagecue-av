@@ -35,6 +35,7 @@
     "tests/unit/driveSync.test.ts",
     "tests/unit/internetAccess.test.ts",
     "tests/unit/webStage.test.ts",
+    "tests/unit/updater.test.ts",
     "relay/server.d.ts",
     "tests/e2e/**/*"
   ]

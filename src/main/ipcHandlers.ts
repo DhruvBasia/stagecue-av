@@ -54,6 +54,8 @@ import {
   resolveCaptureSource,
   type WebStageController
 } from './webStage';
+import { makeOfflineCopy } from './webOffline';
+import type { AppUpdater } from './updater';
 
 export interface WindowRegistry {
   getOperatorWindow(): BrowserWindow | null;
@@ -76,6 +78,7 @@ export interface IpcHandlerHooks {
   driveEndpoints: { apiBase?: string; pageBase?: string; downloadBase?: string };
   /** Live web pages on stage (flipbooks): operator picture + input forwarding. */
   web: WebStageController;
+  updater: AppUpdater;
 }
 
 const MAX_SHOW_FILE_BYTES = 20 * 1024 * 1024;
@@ -285,10 +288,26 @@ export function registerIpcHandlers(
 
   handle('capture:list-sources', false, () => listCaptureSources());
 
+  handle('web:make-offline', false, async (_event, request) => {
+    const r = (typeof request === 'object' && request !== null ? request : {}) as Record<string, unknown>;
+    if (typeof r.url !== 'string' || typeof r.mediaId !== 'string') throw new Error('Invalid offline-copy request');
+    // Documents\StageCue Offline (tests write into their own folder).
+    const outDir = hooks.e2eOutputDir ?? path.join(hooks.documentsDir, 'StageCue Offline');
+    return makeOfflineCopy(
+      { url: r.url, mediaId: r.mediaId, name: typeof r.name === 'string' ? r.name : 'Web page' },
+      outDir,
+      (progress) => sendToWindow(registry.getOperatorWindow(), 'web:offline-progress', progress)
+    );
+  });
+
   handle('capture:resolve', true, async (_event, request) => {
     if (!isCaptureResolveRequest(request)) throw new Error('Invalid capture request');
     return resolveCaptureSource(request);
   });
+
+  /* -------------------------------- Updates ------------------------------- */
+  handle('app:update-check', false, () => hooks.updater.check());
+  handle('app:update-install', false, () => hooks.updater.install());
 
   /* ---------------------------- Remote & print ---------------------------- */
   handle('remote:configure', false, async (_event, request): Promise<RemoteInfo> => {

@@ -89,6 +89,8 @@ export interface CueItem {
   followDelaySec?: number;
   /** Cue to take next; empty means the following cue in the stack. */
   followTargetId?: string;
+  /** Name caption shown when this cue is taken (hides by itself after a few seconds). */
+  caption?: { title: string; subtitle: string };
 }
 
 /**
@@ -304,6 +306,8 @@ export interface RemoteStatus {
   projector: StageMode | null;
   /** Set while a PDF booklet or web page is live: phones show page buttons. */
   paging: LivePaging | null;
+  /** Speaker timer (podium screen); null when not set. */
+  timer: RemoteTimer | null;
 }
 
 export interface RemoteConfigRequest {
@@ -537,6 +541,67 @@ export interface MediaErrorPayload {
   code: number | null;
 }
 
+/* ------------------------------- App updates ------------------------------ */
+
+/**
+ * unsupported – development build or tests (updates only run in the installed app)
+ * ready       – downloaded; installs when StageCue is closed, or now with "Restart to update"
+ */
+export type UpdateState = 'unsupported' | 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'error';
+
+export interface UpdateStatus {
+  state: UpdateState;
+  currentVersion: string;
+  /** The newer version being downloaded / ready. */
+  version: string | null;
+  percent: number | null;
+  error: string | null;
+  checkedAt: number | null;
+}
+
+/* --------------------- On air: captions, countdown, timer ----------------- */
+
+export type CaptionStyle = 'bar' | 'glass';
+
+/** A name caption ("lower third"): "Prof. Mahesh Verma" / "Vice Chancellor". */
+export interface CaptionItem {
+  id: string;
+  title: string;
+  subtitle: string;
+}
+
+/**
+ * A running clock. Running: `endsAt` is the laptop time it reaches zero.
+ * Paused / not started: `endsAt` is null and `remainingMs` is what is left.
+ */
+export interface OverlayClock {
+  endsAt: number | null;
+  remainingMs: number;
+}
+
+/** Everything drawn over the picture on the projector (operator → stage). */
+export interface StageOverlays {
+  caption: (CaptionItem & { style: CaptionStyle }) | null;
+  /** "The event begins in 04:59" over the backdrop. */
+  countdown: (OverlayClock & { message: string; hideAtZero: boolean }) | null;
+  /** Small speaker timer in a corner (only when the operator chooses to show it). */
+  speakerTimer: (OverlayClock & { warnMs: number }) | null;
+}
+
+export const NO_OVERLAYS: StageOverlays = { caption: null, countdown: null, speakerTimer: null };
+
+/** Speaker timer for phones / the podium screen. Times are relative, so phone clocks do not matter. */
+export interface RemoteTimer {
+  running: boolean;
+  /** Left when this status was sent (negative = over time). */
+  remainingMs: number;
+  durationMs: number;
+  warnMs: number;
+  speaker: string;
+  /** Big signal for the speaker: "WRAP UP", "TIME UP"… */
+  message: string | null;
+}
+
 /* ------------------------- Web pages & screen capture --------------------- */
 
 /** Session for on-stage web pages: the only one the stage may embed, sandboxed and without permissions. */
@@ -606,6 +671,28 @@ export interface WebInspectResult {
   title: string | null;
   /** Small JPEG data URL of the loaded page. */
   thumbnail: string | null;
+}
+
+/** Saves a web flipbook as a PDF so it plays without internet. */
+export interface OfflineCopyRequest {
+  /** Library item the progress belongs to. */
+  mediaId: string;
+  url: string;
+  name: string;
+}
+
+export interface OfflineCopyProgress {
+  mediaId: string;
+  phase: 'loading' | 'capturing' | 'saving' | 'done' | 'error';
+  /** Pages captured so far. */
+  pages: number;
+  error: string | null;
+}
+
+export interface OfflineCopyResult {
+  /** The saved PDF (import it like any other PDF). */
+  file: ResolvedMediaFile;
+  pages: number;
 }
 
 /** A window or screen that can be shown on stage. */
@@ -702,6 +789,7 @@ export interface StageSyncSnapshot {
   mix: AudioMix;
   music: MusicSyncState | null;
   outputDeviceId: string;
+  overlays: StageOverlays;
 }
 
 export interface StageReadyPayload {
@@ -798,6 +886,17 @@ export interface ShowFile {
   audioOutput?: AudioOutputPref | null;
   /** Google Drive folders synced for this event (performer tracks). */
   driveSources?: DriveSource[];
+  /** Prepared name captions and timer / countdown presets. */
+  onAir?: OnAirSettings;
+}
+
+export interface OnAirSettings {
+  captions: CaptionItem[];
+  captionStyle: CaptionStyle;
+  timerMinutes: number;
+  timerWarnSeconds: number;
+  countdownMinutes: number;
+  countdownMessage: string;
 }
 
 export interface ShowSaveRequest {
@@ -826,6 +925,7 @@ export const OPERATOR_TO_STAGE_CHANNELS = [
   'stage:action-clear-foreground',
   'stage:video-control',
   'stage:full-sync',
+  'stage:overlays',
   'audio:command'
 ] as const;
 
@@ -857,7 +957,9 @@ export const MAIN_TO_RENDERER_CHANNELS = [
   'remote:info',
   'remote:message',
   'drive:progress',
-  'web:frame'
+  'web:frame',
+  'web:offline-progress',
+  'app:update-status'
 ] as const;
 
 export const INVOKE_CHANNELS = [
@@ -884,7 +986,10 @@ export const INVOKE_CHANNELS = [
   'stage:capture-web',
   'web:inspect',
   'capture:list-sources',
-  'capture:resolve'
+  'capture:resolve',
+  'web:make-offline',
+  'app:update-check',
+  'app:update-install'
 ] as const;
 
 /** The only invoke channels the stage window may use. */
@@ -911,6 +1016,7 @@ export interface OperatorToStagePayloads {
   'stage:action-clear-foreground': ClearForegroundPayload;
   'stage:video-control': VideoControl;
   'stage:full-sync': StageSyncSnapshot;
+  'stage:overlays': StageOverlays;
   'audio:command': AudioCommand;
 }
 
@@ -943,6 +1049,8 @@ export interface MainToRendererPayloads {
   'remote:message': CrewMessage;
   'drive:progress': DriveSyncProgress;
   'web:frame': WebFrame;
+  'web:offline-progress': OfflineCopyProgress;
+  'app:update-status': UpdateStatus;
 }
 
 export interface InvokeContracts {
@@ -972,6 +1080,11 @@ export interface InvokeContracts {
   'capture:list-sources': { args: []; result: CaptureSourceInfo[] };
   /** Current id of a window/screen (window ids change after an app restart). */
   'capture:resolve': { args: [request: CaptureResolveRequest]; result: string | null };
+  'web:make-offline': { args: [request: OfflineCopyRequest]; result: OfflineCopyResult };
+  /** Checks for a newer version now (also returns the current status). */
+  'app:update-check': { args: []; result: UpdateStatus };
+  /** Closes StageCue and installs the downloaded update, then reopens it. */
+  'app:update-install': { args: []; result: boolean };
 }
 
 export type SendPayloads = OperatorToStagePayloads & StageToOperatorPayloads & RendererToMainPayloads;

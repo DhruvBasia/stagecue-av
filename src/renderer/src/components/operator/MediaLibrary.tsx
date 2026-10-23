@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   AppWindow,
   Cloud,
+  Download,
   Film,
   FolderOpen,
   FolderPlus,
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { MediaItem, MediaType } from '../../types';
-import { markDropHandled } from '../../services/operatorBridge';
+import { markDropHandled, saveWebPageOffline } from '../../services/operatorBridge';
 import { baseName, formatBytes, formatTime, MEDIA_TYPE_LABEL, mediaPathKey, sourcePathOf } from '../../services/utils';
 import { useMediaStore } from '../../store/useMediaStore';
 import { useStageStore } from '../../store/useStageStore';
@@ -50,6 +51,7 @@ function MediaCard({ item, probing, isNew }: { item: MediaItem; probing: boolean
   const takeMedia = useStageStore((s) => s.takeMedia);
   const detachMedia = useStageStore((s) => s.detachMedia);
   const removeItem = useMediaStore((s) => s.removeItem);
+  const offlineBusy = useMediaStore((s) => Boolean(s.pdfJobs[`offline:${item.id}`]));
 
   const meta: string[] = [];
   if (item.dimensions) meta.push(`${item.dimensions.width}×${item.dimensions.height}`);
@@ -135,7 +137,7 @@ function MediaCard({ item, probing, isNew }: { item: MediaItem; probing: boolean
             {item.type === 'web' ? 'WEB' : item.capture?.kind === 'screen' ? 'SCREEN' : 'WINDOW'}
           </span>
         ) : null}
-        <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="absolute inset-0 flex flex-wrap content-center items-center justify-center gap-1 bg-black/60 p-1 opacity-0 transition-opacity group-hover:opacity-100">
           <Button
             size="xs"
             variant="secondary"
@@ -156,6 +158,19 @@ function MediaCard({ item, probing, isNew }: { item: MediaItem; probing: boolean
           >
             Now
           </Button>
+          {item.type === 'web' ? (
+            <Button
+              size="xs"
+              variant="info"
+              icon={offlineBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              disabled={offlineBusy}
+              onClick={() => void saveWebPageOffline(item)}
+              title="Save every page as a PDF booklet that plays without internet (takes about a minute)"
+              data-testid="make-offline"
+            >
+              Offline
+            </Button>
+          ) : null}
         </div>
       </div>
       <div className="flex items-start gap-1 px-1.5 py-1">
@@ -191,9 +206,9 @@ function PdfProgress(): JSX.Element | null {
         <div key={key} className="rounded-md border border-av-blue/40 bg-av-blue/5 px-2 py-1.5">
           <div className="flex items-center gap-1.5 text-[11px] text-av-text">
             <Loader2 size={12} className="shrink-0 animate-spin text-av-blue" />
-            <span className="truncate">Rendering {job.name}</span>
+            <span className="truncate">{key.startsWith('offline:') ? job.name : `Rendering ${job.name}`}</span>
             <span className="ml-auto shrink-0 font-mono text-[10px] text-av-muted">
-              {job.total > 0 ? `${job.done}/${job.total}` : '…'}
+              {key.startsWith('offline:') ? `${job.done} page${job.done === 1 ? '' : 's'}` : job.total > 0 ? `${job.done}/${job.total}` : '…'}
             </span>
           </div>
           <div className="mt-1 h-1 overflow-hidden rounded-full bg-av-raised">

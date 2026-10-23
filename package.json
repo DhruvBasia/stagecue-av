@@ -1,6 +1,6 @@
 {
   "name": "stagecue-av",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "StageCue AV - seamless dual-screen media & presentation controller for live events",
   "main": "./out/main/index.js",
   "author": "StageCue AV",
@@ -17,11 +17,11 @@
     "test:watch": "vitest",
     "test:e2e": "electron-vite build && playwright test",
     "build:app": "electron-vite build",
-    "build": "npm run typecheck && electron-vite build && electron-builder",
-    "build:win": "npm run typecheck && electron-vite build && electron-builder --win",
-    "build:mac": "npm run typecheck && electron-vite build && electron-builder --mac",
-    "build:linux": "npm run typecheck && electron-vite build && electron-builder --linux",
-    "build:unpack": "electron-vite build && electron-builder --dir"
+    "build": "npm run typecheck && electron-vite build && electron-builder --publish never",
+    "build:win": "npm run typecheck && electron-vite build && electron-builder --win --publish never",
+    "build:mac": "npm run typecheck && electron-vite build && electron-builder --mac --publish never",
+    "build:linux": "npm run typecheck && electron-vite build && electron-builder --linux --publish never",
+    "build:unpack": "electron-vite build && electron-builder --dir --publish never"
   },
   "build": {
     "appId": "com.stagecue.av",
@@ -36,6 +36,14 @@
       "package.json"
     ],
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "DhruvBasia",
+        "repo": "stagecue-av-releases",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -98,6 +106,7 @@
     "esbuild@0.21.5": true
   },
   "dependencies": {
+    "electron-updater": "6.3.9",
     "ws": "8.18.0"
   }
 }

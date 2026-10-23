@@ -27,11 +27,13 @@ interface E2EHooks {
     importFiles(files: ResolvedMediaFile[]): { added: MediaItem[] };
     rescanFolder(folderPath: string): Promise<{ added: MediaItem[]; skipped: number } | null>;
     addWebPage(url: string, name: string, thumbnail: string | null): MediaItem;
+    makeOfflineCopy(item: MediaItem): Promise<{ pages: MediaItem[] } | null>;
     items: MediaItem[];
     folders: string[];
   }>;
   web: StoreHook<{ frame: { mediaId: string; url: string; title: string } | null }>;
   show: StoreHook<{ alerts: Array<{ title: string; message: string }> }>;
+  onAir: StoreHook<{ addTimerTime(ms: number): void; startTimer(): void; clearTimer(): void }>;
   stage: StoreHook<{
     addMediaAsCue(media: MediaItem): string;
     cues: CueItem[];
@@ -1034,8 +1036,8 @@ const FLIPBOOK_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>T
 <body><div id="n">1</div><script>
 var page = Number(new URLSearchParams(location.search).get('page') || 1), last = 'none';
 function show() { document.getElementById('n').textContent = page; history.replaceState(null, '', location.pathname + '?page=' + page); document.title = 'Test Flipbook p' + page + ' ' + last; }
-addEventListener('keydown', function (e) { last = 'key:' + e.key + ':' + e.isTrusted; if (e.key === 'ArrowRight') page++; if (e.key === 'ArrowLeft' && page > 1) page--; show(); });
-addEventListener('click', function (e) { last = 'click:' + e.isTrusted; if (e.clientX > innerWidth / 2) page++; else if (page > 1) page--; show(); });
+addEventListener('keydown', function (e) { last = 'key:' + e.key + ':' + e.isTrusted; if (e.key === 'ArrowRight' && page < 6) page++; if (e.key === 'ArrowLeft' && page > 1) page--; show(); });
+addEventListener('click', function (e) { last = 'click:' + e.isTrusted; if (e.clientX > innerWidth / 2) { if (page < 6) page++; } else if (page > 1) page--; show(); });
 show();
 </script></body></html>`;
 
@@ -1133,6 +1135,55 @@ test('a web flipbook plays on stage and is turned from the operator window (butt
   }
 });
 
+test('a web flipbook is saved offline as a booklet that plays without internet', async () => {
+  test.setTimeout(120_000);
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(FLIPBOOK_HTML);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  const url = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}/annual-magazine`;
+  let serverOpen = true;
+  try {
+    const mediaId = await operator.evaluate(
+      (address) => window.__STAGECUE_TEST__?.media.getState().addWebPage(address, 'Annual Magazine', null).id ?? '',
+      url
+    );
+    await operator.getByTestId('bin-live').click();
+    const card = operator.locator(`[data-testid="media-card"][data-media-id="${mediaId}"]`);
+    await card.hover();
+    await card.getByTestId('make-offline').click();
+    await expect(operator.getByTestId('pdf-progress')).toBeVisible();
+
+    // Every view of the flipbook (6 here) becomes a page of a PDF booklet, with a cue for it.
+    const offlinePages = (): Promise<number> =>
+      operator.evaluate(
+        () => window.__STAGECUE_TEST__?.media.getState().items.filter((i) => i.pdf?.sourcePath.includes('Annual Magazine (offline copy)')).length ?? 0
+      );
+    await expect.poll(offlinePages, { timeout: 90_000 }).toBe(6);
+    const cueId = await operator.evaluate(
+      () => window.__STAGECUE_TEST__?.stage.getState().cues.find((c) => c.label === 'Annual Magazine (offline)')?.id ?? null
+    );
+    expect(cueId).not.toBeNull();
+    expect(existsSync(path.join(fixtureDir, 'Annual Magazine (offline copy).pdf'))).toBe(true);
+
+    // No internet any more: the booklet still plays and turns.
+    server.close();
+    serverOpen = false;
+    await operator.waitForTimeout(350);
+    await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id ?? ''), cueId);
+    await expect.poll(stageBackdropName).toBe('Annual Magazine (offline copy) · p1');
+    const controls = operator.getByTestId('monitor-program').getByTestId('page-controls');
+    await expect(controls).toContainText('/ 6');
+    await controls.getByTestId('page-next').click();
+    await expect.poll(stageBackdropName).toBe('Annual Magazine (offline copy) · p2');
+    await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-offline-magazine.png') });
+  } finally {
+    if (serverOpen) server.close();
+  }
+});
+
 test('a window or screen can be shown live on stage', async () => {
   await operator.getByTestId('bin-live').click();
   await operator.getByTestId('add-capture').click();
@@ -1167,6 +1218,113 @@ test('a window or screen can be shown live on stage', async () => {
   await expect(stage.getByTestId('freeze-layer')).toHaveAttribute('data-active', 'false');
 });
 
+test('on air: name captions, the projector countdown and the speaker timer on the podium phone', async () => {
+  test.setTimeout(90_000);
+  const panel = operator.getByTestId('onair-panel');
+  await panel.scrollIntoViewIfNeeded();
+
+  // Captions: add one, put it over the picture, take it off again.
+  await panel.getByTestId('onair-tab-captions').click();
+  await panel.getByTestId('onair-caption-title').fill('Prof. Mahesh Verma');
+  await panel.getByTestId('onair-caption-subtitle').fill('Vice Chancellor');
+  await panel.getByTestId('onair-caption-add').click();
+  await panel.getByRole('button', { name: 'Show Prof. Mahesh Verma' }).click();
+  await expect(stage.getByTestId('overlay-caption')).toContainText('Prof. Mahesh Verma');
+  await expect(stage.getByTestId('overlay-caption')).toContainText('Vice Chancellor');
+  await expect(operator.getByTestId('monitor-program').getByTestId('overlay-caption')).toContainText('Prof. Mahesh Verma');
+  await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-caption.png') });
+  await panel.getByTestId('onair-caption-hide').click();
+  await expect(stage.getByTestId('overlay-caption')).toHaveCount(0);
+
+  // A cue can bring its own caption; the next cue without one takes it away.
+  const cues = await operator.evaluate(() => {
+    const hooks = window.__STAGECUE_TEST__;
+    const image = hooks?.media.getState().items.find((i) => i.type === 'image' && !i.missing && !i.pdf);
+    if (!hooks || !image) throw new Error('no image');
+    const withCaption = hooks.stage.getState().addCue({
+      label: 'Welcome address',
+      backdropMediaId: image.id,
+      transition: 'cut',
+      caption: { title: 'Dr. Kamal Pathak', subtitle: 'Registrar' }
+    });
+    const plain = hooks.stage.getState().addCue({ label: 'No caption', backdropMediaId: image.id, transition: 'cut' });
+    return { withCaption, plain };
+  });
+  await operator.waitForTimeout(350);
+  await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), cues.withCaption);
+  await expect(stage.getByTestId('overlay-caption')).toContainText('Dr. Kamal Pathak');
+  await operator.waitForTimeout(350);
+  await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), cues.plain);
+  await expect(stage.getByTestId('overlay-caption')).toHaveCount(0);
+
+  // Countdown on the projector.
+  await panel.getByTestId('onair-tab-countdown').click();
+  await panel.getByTestId('onair-countdown-message').fill('Annual Day begins in');
+  await panel.getByTestId('onair-countdown-minutes').fill('2');
+  await panel.getByTestId('onair-countdown-minutes').press('Enter');
+  await panel.getByTestId('onair-countdown-start').click();
+  await expect(stage.getByTestId('overlay-countdown')).toContainText('Annual Day begins in');
+  await expect(stage.getByTestId('overlay-countdown-time')).toHaveText(/^(2:00|1:5\d)$/);
+  await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-countdown.png') });
+  // Blackout still covers everything.
+  await operator.keyboard.press('Escape');
+  await expect(stage.getByTestId('blackout-layer')).toHaveAttribute('data-active', 'true');
+  await operator.keyboard.press('Escape');
+  await panel.getByTestId('onair-countdown-hide').click();
+  await expect(stage.getByTestId('overlay-countdown')).toHaveCount(0);
+
+  // Speaker timer: podium phone + projector corner.
+  const port = 20000 + Math.floor(Math.random() * 20000);
+  const info = await operator.evaluate(async (p) => {
+    const prefs = window.__STAGECUE_TEST__?.prefs.getState();
+    await prefs?.setInternet({ mode: 'off' });
+    return prefs?.configureRemote(true, p) ?? null;
+  }, port);
+  if (!info) throw new Error('remote did not start');
+  try {
+    await panel.getByTestId('onair-tab-timer').click();
+    await panel.getByTestId('onair-speaker').fill('Dr. Kamal Pathak');
+    await panel.getByRole('button', { name: '3m', exact: true }).click();
+    await panel.getByTestId('onair-timer-start').click();
+    await expect(panel.getByTestId('onair-timer-display')).toHaveText(/^(3:00|2:5\d)$/);
+    await panel.getByTestId('onair-timer-projector').check();
+    await expect(stage.getByTestId('overlay-timer')).toHaveText(/^(3:00|2:5\d)$/);
+    await panel.getByTestId('onair-signal-wrap-up').click();
+
+    // The podium page a phone opens from the "Podium timer" QR code.
+    const podiumUrl = `http://127.0.0.1:${port}/?t=${info.stageToken}&view=timer`;
+    const opened = app.waitForEvent('window');
+    await app.evaluate(({ BrowserWindow }, url) => {
+      const win = new BrowserWindow({ width: 844, height: 390, show: true, title: 'Podium preview' });
+      void win.loadURL(url);
+    }, podiumUrl);
+    const podiumPage = await opened;
+    await podiumPage.waitForSelector('#pdTime');
+    await expect(podiumPage.locator('#pdTime')).toHaveText(/^(3:00|2:5\d)$/, { timeout: 10_000 });
+    await expect(podiumPage.locator('#pdSpeaker')).toHaveText('Dr. Kamal Pathak');
+    await expect(podiumPage.locator('#pdMsg')).toHaveText('WRAP UP');
+    await podiumPage.screenshot({ path: path.join(ARTIFACTS, 'phone-podium-timer.png') });
+
+    // Over time: red on the podium.
+    await panel.getByRole('button', { name: 'Reset timer' }).click();
+    await operator.evaluate(() => {
+      const onAir = window.__STAGECUE_TEST__?.onAir.getState();
+      onAir?.addTimerTime(-180_000 - 5_000);
+      onAir?.startTimer();
+    });
+    await expect(podiumPage.locator('#pdTime')).toHaveText(/^\+0:0\d$/, { timeout: 10_000 });
+    await expect(podiumPage.locator('#pdTime')).toHaveClass(/over/);
+    await podiumPage.screenshot({ path: path.join(ARTIFACTS, 'phone-podium-overtime.png') });
+    await podiumPage.close();
+    await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-onair.png') });
+  } finally {
+    await operator.evaluate(() => window.__STAGECUE_TEST__?.onAir.getState().clearTimer());
+    await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().configureRemote(false));
+    await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().setInternet({ mode: 'tunnel' }));
+  }
+  await expect(stage.getByTestId('overlay-timer')).toHaveCount(0);
+});
+
 // Opt-in (needs internet): STAGECUE_E2E_REAL_WEB=1 opens the real annual magazine and turns a page.
 test('the real Netted Bytes flipbook turns its pages from StageCue', async () => {
   test.skip(process.env.STAGECUE_E2E_REAL_WEB !== '1', 'set STAGECUE_E2E_REAL_WEB=1 to use the real magazine');
@@ -1191,4 +1349,33 @@ test('the real Netted Bytes flipbook turns its pages from StageCue', async () =>
   await operator.waitForTimeout(1500);
   await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-real-magazine.png') });
   await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-real-magazine.png') });
+
+  // Save it offline: every spread of the magazine becomes a booklet page.
+  test.setTimeout(300_000);
+  await operator.evaluate(async (id) => {
+    const hooks = window.__STAGECUE_TEST__;
+    const media = hooks?.media.getState().items.find((i) => i.id === id);
+    if (!hooks || !media) throw new Error('magazine missing');
+    await hooks.media.getState().makeOfflineCopy(media);
+  }, ids.media);
+  const pages = await operator.evaluate(
+    () => window.__STAGECUE_TEST__?.media.getState().items.filter((i) => i.pdf?.sourcePath.includes('Netted Bytes (offline copy)')).length ?? 0
+  );
+  test.info().annotations.push({ type: 'offline magazine pages', description: String(pages) });
+  expect(pages).toBeGreaterThanOrEqual(10);
+  copyFileSync(path.join(fixtureDir, 'Netted Bytes (offline copy).pdf'), path.join(ARTIFACTS, 'netted-bytes-offline.pdf'));
+  const offlineCue = await operator.evaluate(() => {
+    const hooks = window.__STAGECUE_TEST__;
+    const first = hooks?.media.getState().items.find((i) => i.pdf?.sourcePath.includes('Netted Bytes (offline copy)') && i.pdf.page === 1);
+    if (!hooks || !first) throw new Error('offline page missing');
+    return hooks.stage.getState().addMediaAsCue(first);
+  });
+  await operator.waitForTimeout(350);
+  await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), offlineCue);
+  const controls = operator.getByTestId('monitor-program').getByTestId('page-controls');
+  await controls.getByTestId('page-next').click();
+  await controls.getByTestId('page-next').click();
+  await expect.poll(stageBackdropName).toContain('· p3');
+  await operator.waitForTimeout(1200);
+  await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-real-magazine-offline-p3.png') });
 });

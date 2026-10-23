@@ -43,11 +43,13 @@ import {
   startFollow,
   type PendingFollow
 } from '../services/followEngine';
+import { CUE_CAPTION_MS } from '../services/onAir';
 import { adjacentPage, pageNumbered } from '../services/paging';
 import { updateRenderTarget } from '../services/pdfRenderer';
 import { createId } from '../services/utils';
 import { useAudioStore } from './useAudioStore';
 import { useMediaStore } from './useMediaStore';
+import { useOnAirStore } from './useOnAirStore';
 import { useShowStore } from './useShowStore';
 
 /* Operator-side program/preview state. The operator is the source of truth;
@@ -382,6 +384,13 @@ export const useStageStore = create<StageStoreState>((set, get) => {
       const payload = buildCuePayload(cue, lookup, get().program, takeId);
       sendTake(payload);
       scheduleFollow(cue, payload);
+      // A cue's name caption slides in with it; a caption from the previous cue goes away.
+      const onAir = useOnAirStore.getState();
+      if (cue.caption?.title) {
+        onAir.showCaption({ id: `cue:${cue.id}:${takeId}`, ...cue.caption }, { autoHideMs: CUE_CAPTION_MS, fromCue: true });
+      } else if (onAir.liveCaption?.fromCue) {
+        onAir.hideCaption();
+      }
       for (const refId of [cue.backdropMediaId, cue.foregroundMediaId, cue.audioMediaId]) {
         if (refId) useMediaStore.getState().clearNew(refId);
       }
@@ -620,7 +629,8 @@ export const useStageStore = create<StageStoreState>((set, get) => {
         isBlackout: program.isBlackout,
         mix: audio.getMix(),
         music,
-        outputDeviceId: audio.resolvedOutputDeviceId()
+        outputDeviceId: audio.resolvedOutputDeviceId(),
+        overlays: useOnAirStore.getState().overlays()
       };
     },
 

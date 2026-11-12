@@ -258,7 +258,7 @@ function WebPageControlsBar({ live }: { live: boolean }): JSX.Element {
 
 /** Shown under the Program monitor while a booklet is live. */
 export function PageControls({ item }: { item: MediaItem }): JSX.Element | null {
-  if (item.pdf) return <PdfPageControls item={item} />;
+  if (item.pdf && item.pdf.pageCount > 1) return <PdfPageControls item={item} />;
   if (item.type === 'web') return <WebPageControls item={item} />;
   return null;
 }

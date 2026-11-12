@@ -5,6 +5,7 @@ import { getVisibleView, isBackdropCapable, isForegroundCapable } from '../../se
 import { formatTime } from '../../services/utils';
 import { useMediaStore } from '../../store/useMediaStore';
 import { useOnAirStore } from '../../store/useOnAirStore';
+import { livePaging } from '../../services/paging';
 import { StageOverlays } from '../stage/StageOverlays';
 import { useStageStore } from '../../store/useStageStore';
 import { Button } from '../common/Button';
@@ -382,7 +383,7 @@ function ProgramMonitor(): JSX.Element {
   const time = frozen && program.frozenView ? program.frozenView.foregroundTime : liveTime;
   // The library item (with its PDF page / web address) behind the live backdrop.
   const liveItem = program.backdrop ? items.find((i) => i.id === program.backdrop?.id) ?? null : null;
-  const booklet = liveItem !== null && !liveItem.missing && (liveItem.pdf !== undefined || liveItem.type === 'web');
+  const booklet = livePaging(liveItem, null) !== null;
   const webLive = liveItem !== null && liveItem.type === 'web' && view.backdrop?.id === liveItem.id;
 
   return (

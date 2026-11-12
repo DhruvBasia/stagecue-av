@@ -719,6 +719,8 @@ test('stage team phones control the show over WebSockets, within the AV room’s
   await operator.getByTestId('open-settings').click();
   await expect(operator.getByTestId('remote-qr-stage')).toBeVisible();
   await expect(operator.getByTestId('remote-qr-operator')).toBeVisible();
+  await expect(operator.getByTestId('about-creator')).toHaveText('Dhruv Basia');
+  await expect(operator.getByTestId('settings-about')).toContainText('SR USAR · Executive Council Member, GGSIPU');
   await operator.screenshot({ path: path.join(ARTIFACTS, 'operator-settings.png') });
   await operator.keyboard.press('Escape');
   await operator.evaluate(() => window.__STAGECUE_TEST__?.prefs.getState().configureRemote(false));
@@ -1204,7 +1206,18 @@ test('a window or screen can be shown live on stage', async () => {
   await operator.waitForTimeout(350);
   await operator.evaluate((id) => window.__STAGECUE_TEST__?.stage.getState().takeCue(id), ids.cue);
   const video = stage.locator(`[data-testid="backdrop-layer"] [data-active="true"] video[data-media-id="${ids.media}"]`);
-  await expect.poll(() => video.evaluate((v) => (v as HTMLVideoElement).videoWidth).catch(() => 0), { timeout: 15_000 }).toBeGreaterThan(0);
+  try {
+    await expect.poll(() => video.evaluate((v) => (v as HTMLVideoElement).videoWidth).catch(() => 0), { timeout: 15_000 }).toBeGreaterThan(0);
+  } catch (error) {
+    const seen = await stage.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="backdrop-layer"] video')].map((v) => {
+        const el = v as HTMLVideoElement;
+        return `${el.dataset.mediaId} active=${el.closest('[data-active]')?.getAttribute('data-active')} w=${el.videoWidth} src=${el.srcObject ? 'stream' : el.src}`;
+      })
+    );
+    const alerts = await operator.evaluate(() => window.__STAGECUE_TEST__?.show.getState().alerts.map((a) => `${a.title}: ${a.message}`) ?? []);
+    throw new Error(`${String(error)}\nstage videos: ${JSON.stringify(seen)}\nalerts: ${JSON.stringify(alerts.slice(-5))}`);
+  }
   await stage.screenshot({ path: path.join(ARTIFACTS, 'stage-screen-capture.png') });
   // Nothing went wrong on the way (e.g. a refused capture permission).
   const alerts = await operator.evaluate(() => window.__STAGECUE_TEST__?.show.getState().alerts.map((a) => a.title) ?? []);
@@ -1237,6 +1250,11 @@ test('on air: name captions, the projector countdown and the speaker timer on th
   await expect(stage.getByTestId('overlay-caption')).toHaveCount(0);
 
   // A cue can bring its own caption; the next cue without one takes it away.
+  // (Run on its own, the library may still be empty: bring a picture in.)
+  const hasImage = await operator.evaluate(
+    () => window.__STAGECUE_TEST__?.media.getState().items.some((i) => i.type === 'image' && !i.missing && !i.pdf) ?? false
+  );
+  if (!hasImage) await importAsCue(operator, welcomePath);
   const cues = await operator.evaluate(() => {
     const hooks = window.__STAGECUE_TEST__;
     const image = hooks?.media.getState().items.find((i) => i.type === 'image' && !i.missing && !i.pdf);

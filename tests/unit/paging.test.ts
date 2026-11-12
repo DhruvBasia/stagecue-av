@@ -86,6 +86,8 @@ describe('booklet pages', () => {
     expect(livePaging(web, null)).toEqual({ kind: 'web', page: null, pageCount: null });
     expect(livePaging({ ...page(1), pdf: undefined }, null)).toBeNull();
     expect(livePaging(page(1, { missing: true }), null)).toBeNull();
+    // A single-page PDF is just a backdrop: nothing to turn.
+    expect(livePaging(page(1, { pdf: { sourcePath: 'C:\\Event\\Backdrop.pdf', page: 1, pageCount: 1 } }), null)).toBeNull();
     expect(describePaging(livePaging(page(3), null))).toBe('Page 3 / 6');
     expect(describePaging({ kind: 'pdf', page: 2, pageCount: 10 }, true)).toBe('Slide 2 / 10');
     expect(describePaging({ kind: 'web', page: null, pageCount: null })).toBe('');

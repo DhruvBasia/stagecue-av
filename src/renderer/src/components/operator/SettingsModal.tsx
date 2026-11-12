@@ -326,6 +326,44 @@ function RoleLinks({ role, links }: { role: RemoteRole; links: RemoteLink[] }): 
   );
 }
 
+/** Who made StageCue AV. */
+export const CREATOR = {
+  name: 'Dhruv Basia',
+  roles: ['SR USAR', 'Executive Council Member, GGSIPU'],
+  firstShow: 'First used live at Teachers’ Day 2026, GGSIPU',
+  releases: 'https://github.com/DhruvBasia/stagecue-av-releases/releases/latest'
+} as const;
+
+function AboutSection(): JSX.Element {
+  const version = useUpdateStore((s) => s.status?.currentVersion);
+  return (
+    <section className="overflow-hidden rounded-lg border border-av-border bg-av-panel" data-testid="settings-about">
+      <div className="flex items-stretch">
+        <div className="w-1.5 shrink-0 bg-av-green" />
+        <div className="min-w-0 flex-1 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-av-muted">About StageCue AV{version ? ` · ${version}` : ''}</div>
+          <div className="mt-2 text-xs text-av-muted">Designed &amp; built by</div>
+          <div className="text-xl font-bold leading-tight text-av-text" data-testid="about-creator">
+            {CREATOR.name}
+          </div>
+          <div className="mt-0.5 text-sm text-av-muted">{CREATOR.roles.join(' · ')}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-av-dim">
+            <span>{CREATOR.firstShow}</span>
+            <button
+              type="button"
+              className="text-av-blue underline decoration-dotted hover:text-av-text"
+              onClick={() => void navigator.clipboard.writeText(CREATOR.releases)}
+              title={CREATOR.releases}
+            >
+              Copy download link
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function updateText(status: UpdateStatus | null): string {
   if (!status) return 'Checking the version…';
   switch (status.state) {
@@ -697,6 +735,7 @@ export function SettingsModal(): JSX.Element | null {
         <RemoteSection />
         <AudioOutputSection />
         <UpdateSection />
+        <AboutSection />
       </div>
     </Modal>
   );

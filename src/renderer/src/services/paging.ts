@@ -71,7 +71,8 @@ export function pageFromUrl(url: string): number | null {
 /** What can be paged right now, given the live backdrop (full library item) and the web page's address. */
 export function livePaging(backdrop: MediaItem | null, webUrl: string | null): LivePaging | null {
   if (!backdrop || backdrop.missing) return null;
-  if (backdrop.pdf) return { kind: 'pdf', page: backdrop.pdf.page, pageCount: backdrop.pdf.pageCount };
+  // A one-page PDF (a single backdrop) has nothing to turn.
+  if (backdrop.pdf) return backdrop.pdf.pageCount > 1 ? { kind: 'pdf', page: backdrop.pdf.page, pageCount: backdrop.pdf.pageCount } : null;
   if (backdrop.type === 'web') return { kind: 'web', page: webUrl ? pageFromUrl(webUrl) : null, pageCount: null };
   return null;
 }

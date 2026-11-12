@@ -245,7 +245,7 @@ export function runRemoteAction(event: RemoteActionEvent): RemoteAck {
 
 function backdropKindLabel(item: MediaItem): string {
   if (item.pdf?.originalPath) return 'Slides';
-  if (item.pdf) return `PDF · page ${item.pdf.page}/${item.pdf.pageCount}`;
+  if (item.pdf && item.pdf.pageCount > 1) return `PDF · page ${item.pdf.page}/${item.pdf.pageCount}`;
   switch (item.type) {
     case 'video':
       return 'Moving backdrop';

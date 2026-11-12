@@ -1,6 +1,6 @@
 {
   "name": "stagecue-av",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "StageCue AV - seamless dual-screen media & presentation controller for live events",
   "main": "./out/main/index.js",
   "author": "StageCue AV",

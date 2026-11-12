@@ -114,7 +114,7 @@ function CueThumb({
           <Music size={9} />
         </span>
       ) : null}
-      {backdrop && (backdrop.pdf || backdrop.type === 'web' || backdrop.type === 'screen') ? (
+      {backdrop && ((backdrop.pdf && backdrop.pdf.pageCount > 1) || backdrop.type === 'web' || backdrop.type === 'screen') ? (
         <span
           className="absolute right-0.5 top-0.5 rounded-sm bg-black/80 px-0.5 font-mono text-[8px] font-bold leading-tight text-av-amber"
           title={
